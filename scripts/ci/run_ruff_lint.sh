@@ -5,3 +5,4 @@ uvx ruff check --output-format=github
 python3 scripts/public_boundary_policy_lint.py \
   --manifest config/public_export_allowlist.yaml \
   --denylist config/public_export_denylist.yaml
+python3 scripts/extension_contract_check.py --strict

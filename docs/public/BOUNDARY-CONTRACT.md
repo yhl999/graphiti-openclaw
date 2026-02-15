@@ -56,3 +56,12 @@ python3 scripts/public_boundary_policy_lint.py \
 ```
 
 This fails when policy rules are duplicated or contradictory (same pattern in both allowlist and denylist).
+
+## Related migration/sync toolchain
+
+Boundary policy now also governs delta-layer migration/sync tooling (`scripts/state_migration_*`,
+`scripts/upstream_sync_doctor.py`, `extensions/**`, and migration workflow wiring).
+
+See:
+- `docs/public/MIGRATION-SYNC-TOOLKIT.md`
+- `scripts/extension_contract_check.py`
