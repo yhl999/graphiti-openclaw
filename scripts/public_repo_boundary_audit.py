@@ -5,14 +5,12 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
-import re
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 
-Status = str
 ALLOW = 'ALLOW'
 BLOCK = 'BLOCK'
 AMBIGUOUS = 'AMBIGUOUS'
@@ -21,7 +19,7 @@ AMBIGUOUS = 'AMBIGUOUS'
 @dataclass(frozen=True)
 class RuleDecision:
     path: str
-    status: Status
+    status: str
     reason_code: str
     matched_rule: str | None
 
@@ -35,39 +33,46 @@ def _read_yaml_list(file_path: Path, section_name: str) -> list[str]:
     """
 
     if not file_path.exists():
-        raise FileNotFoundError(f"Missing file: {file_path}")
+        raise FileNotFoundError(f'Missing file: {file_path}')
 
-    lines = file_path.read_text(encoding='utf-8').splitlines()
     rules: list[str] = []
-    current_section: str | None = None
+    in_target_section = False
     found_section = False
-    section_matcher = re.compile(r'^([A-Za-z0-9_]+):')
 
-    for raw_line in lines:
+    for raw_line in file_path.read_text(encoding='utf-8').splitlines():
         line = raw_line.strip()
         if not line or line.startswith('#'):
             continue
 
-        section_match = section_matcher.match(line)
-        if section_match:
-            current_section = section_match.group(1)
-            if current_section == section_name:
-                found_section = True
+        if line.endswith(':') and not line.startswith('-'):
+            section = line[:-1].strip()
+            in_target_section = section == section_name
+            found_section = found_section or in_target_section
             continue
 
-        if current_section == section_name and raw_line.lstrip().startswith('-'):
-            value = raw_line.lstrip()[1:].strip()
-            if not value:
-                continue
-            value = value.split('#', 1)[0].strip()
-            value = value.strip("\"'")
-            if value:
-                rules.append(value.removeprefix('./'))
+        if not in_target_section or not line.startswith('-'):
+            continue
+
+        value = line[1:].split('#', 1)[0].strip().strip("\"'")
+        if value:
+            rules.append(value.removeprefix('./'))
 
     if not found_section:
         raise ValueError(f"Manifest missing required section '{section_name}': {file_path}")
 
     return rules
+
+
+def _run_git_lines(repo_root: Path, *args: str) -> set[str]:
+    """Run a git command and return non-empty output lines as a set."""
+
+    result = subprocess.run(
+        ['git', '-C', str(repo_root), *args],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return {line.strip() for line in result.stdout.splitlines() if line.strip()}
 
 
 def _resolve_repo_root(cwd: Path) -> Path:
@@ -98,24 +103,10 @@ def _resolve_input_path(path: Path, repo_root: Path) -> Path:
 def _collect_git_files(repo_root: Path, include_untracked: bool) -> list[str]:
     """Collect tracked files from git and optionally append untracked files."""
 
-    result = subprocess.run(
-        ['git', '-C', str(repo_root), 'ls-files'],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    files = {line.strip() for line in result.stdout.splitlines() if line.strip()}
+    files = _run_git_lines(repo_root, 'ls-files')
 
     if include_untracked:
-        untracked_result = subprocess.run(
-            ['git', '-C', str(repo_root), 'status', '--porcelain=v1', '-z', '--untracked-files=all'],
-            capture_output=True,
-            check=True,
-        )
-        for record in untracked_result.stdout.decode('utf-8', 'surrogateescape').split('\0'):
-            if not record.startswith('?? '):
-                continue
-            files.add(record[3:])
+        files |= _run_git_lines(repo_root, 'ls-files', '--others', '--exclude-standard')
 
     return sorted(files)
 
@@ -134,6 +125,15 @@ def _classify(path: str, allowlist: list[str], denylist: list[str]) -> RuleDecis
     return RuleDecision(path, AMBIGUOUS, 'NO_MATCH', None)
 
 
+def _count_statuses(decisions: list[RuleDecision]) -> dict[str, int]:
+    """Count decisions by status."""
+
+    counts = {ALLOW: 0, BLOCK: 0, AMBIGUOUS: 0}
+    for decision in decisions:
+        counts[decision.status] += 1
+    return counts
+
+
 def _build_report(
     decisions: list[RuleDecision],
     manifest_path: Path,
@@ -142,14 +142,7 @@ def _build_report(
 ) -> str:
     """Build a markdown report with summary counts and remediation hints."""
 
-    status_counts = {
-        ALLOW: 0,
-        BLOCK: 0,
-        AMBIGUOUS: 0,
-    }
-    for decision in decisions:
-        status_counts[decision.status] += 1
-
+    status_counts = _count_statuses(decisions)
     block_list = [d for d in decisions if d.status == BLOCK]
     ambiguous_list = [d for d in decisions if d.status == AMBIGUOUS]
 
@@ -245,10 +238,8 @@ def main() -> int:
     denylist_rules = _read_yaml_list(denylist, 'denylist')
 
     files = _collect_git_files(repo_root, include_untracked=args.include_untracked)
-    decisions = [
-        _classify(path, allowlist=allowlist_rules, denylist=denylist_rules)
-        for path in files
-    ]
+    decisions = [_classify(path, allowlist=allowlist_rules, denylist=denylist_rules) for path in files]
+    status_counts = _count_statuses(decisions)
 
     report_text = _build_report(
         decisions=decisions,
@@ -260,11 +251,12 @@ def main() -> int:
     report.write_text(report_text, encoding='utf-8')
 
     print(f'Report written to: {report}')
-    print(f'Total: {len(decisions)} | ALLOW: {sum(d.status == ALLOW for d in decisions)} | '
-          f'BLOCK: {sum(d.status == BLOCK for d in decisions)} | '
-          f'AMBIGUOUS: {sum(d.status == AMBIGUOUS for d in decisions)}')
+    print(
+        f'Total: {len(decisions)} | ALLOW: {status_counts[ALLOW]} | '
+        f'BLOCK: {status_counts[BLOCK]} | AMBIGUOUS: {status_counts[AMBIGUOUS]}',
+    )
 
-    if args.strict and any(d.status != ALLOW for d in decisions):
+    if args.strict and (status_counts[BLOCK] or status_counts[AMBIGUOUS]):
         return 1
     return 0
 
