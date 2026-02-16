@@ -68,7 +68,7 @@ class UpstreamSyncDoctorTests(unittest.TestCase):
             (upstream_work / 'UPSTREAM.md').write_text('new\n', encoding='utf-8')
             self._git(upstream_work, 'add', 'UPSTREAM.md')
             self._git(upstream_work, 'commit', '-m', 'upstream-only change')
-            self._git(upstream_work, 'push', 'origin', 'main')
+            self._git(upstream_work, 'push', 'origin', 'HEAD:main')
 
             policy_path = self._write_policy(root)
             output_json = root / 'doctor.json'
