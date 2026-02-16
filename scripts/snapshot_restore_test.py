@@ -31,7 +31,14 @@ def _safe_extract_tar(archive_path: Path, destination: Path) -> None:
         for member in members:
             member_path = destination / member.name
             _assert_path_within(destination, member_path, context='tar extraction path')
-        tar.extractall(path=destination, members=members)
+
+            if member.issym() or member.islnk():
+                raise ValueError(f'Unsupported link entry in snapshot archive: {member.name}')
+            if member.isdev() or member.isfifo():
+                raise ValueError(f'Unsupported special file entry in snapshot archive: {member.name}')
+
+        for member in members:
+            tar.extract(member, path=destination)
 
 
 def _decrypt_archive(encrypted_archive: Path, plain_archive: Path, passphrase_env: str) -> None:
@@ -58,12 +65,15 @@ def _decrypt_archive(encrypted_archive: Path, plain_archive: Path, passphrase_en
     )
 
 
-def _validate_manifest(payload: dict[str, object], manifest_path: Path) -> tuple[str, bool, list[dict[str, object]]]:
+def _validate_manifest(payload: dict[str, object], manifest_path: Path) -> tuple[str, bool, str, list[dict[str, object]]]:
     archive_path_value = payload.get('archive_path')
+    archive_sha256_value = payload.get('archive_sha256')
     entries_value = payload.get('entries')
 
     if not isinstance(archive_path_value, str) or not archive_path_value.strip():
         raise ValueError(f'Manifest missing `archive_path`: {manifest_path}')
+    if not isinstance(archive_sha256_value, str) or not archive_sha256_value.strip():
+        raise ValueError(f'Manifest missing `archive_sha256`: {manifest_path}')
     if not isinstance(entries_value, list):
         raise ValueError(f'Manifest missing `entries` list: {manifest_path}')
 
@@ -79,7 +89,7 @@ def _validate_manifest(payload: dict[str, object], manifest_path: Path) -> tuple
             raise ValueError(f'Manifest entry missing integer size_bytes: {entry}')
         validated_entries.append(entry)
 
-    return archive_path_value, bool(payload.get('archive_encrypted')), validated_entries
+    return archive_path_value, bool(payload.get('archive_encrypted')), archive_sha256_value, validated_entries
 
 
 def parse_args() -> argparse.Namespace:
@@ -129,9 +139,15 @@ def main() -> int:
     if not isinstance(manifest, dict):
         raise ValueError(f'Snapshot manifest must be an object: {manifest_path}')
 
-    archive_rel, archive_encrypted, entries = _validate_manifest(manifest, manifest_path)
+    archive_rel, archive_encrypted, archive_sha256, entries = _validate_manifest(manifest, manifest_path)
     archive_path = resolve_safe_child(repo_root, archive_rel, context='snapshot archive path from manifest')
     _assert_path_within(snapshot_dir, archive_path, context='snapshot archive path must stay under snapshot_dir')
+
+    actual_archive_sha256 = sha256_file(archive_path)
+    if actual_archive_sha256 != archive_sha256:
+        raise ValueError(
+            f'Archive checksum mismatch: expected {archive_sha256}, got {actual_archive_sha256}',
+        )
 
     if args.dry_run:
         print('DRY RUN restore-test plan:')
@@ -139,6 +155,7 @@ def main() -> int:
         print(f'- snapshot dir: {snapshot_dir}')
         print(f'- manifest: {manifest_path}')
         print(f'- archive: {archive_path}')
+        print(f'- archive sha256: {archive_sha256}')
         print(f'- encrypted: {archive_encrypted}')
         print(f'- entries: {len(entries)}')
         return 0

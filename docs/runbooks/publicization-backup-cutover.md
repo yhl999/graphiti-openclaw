@@ -54,6 +54,7 @@ python3 scripts/snapshot_restore_test.py \
 ```bash
 scripts/backup.sh precutover
 ```
+This wrapper is rerun-safe for snapshot outputs (`snapshot_create.py` is invoked with `--force` inside `precutover`).
 
 ## GO / NO-GO decision points
 

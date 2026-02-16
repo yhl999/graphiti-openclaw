@@ -89,7 +89,8 @@ cmd_precutover() {
   python3 "$repo_root/scripts/snapshot_create.py" \
     --repo "$repo_root" \
     --snapshot-dir "$SNAPSHOT_DIR" \
-    --manifest "$MANIFEST_PATH"
+    --manifest "$MANIFEST_PATH" \
+    --force
 
   python3 "$repo_root/scripts/snapshot_restore_test.py" \
     --repo "$repo_root" \
