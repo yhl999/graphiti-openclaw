@@ -7,15 +7,64 @@
 - Depends On: task-graphiti-public-boundary-contract
 - Preferred Engine: Either
 - Owned Paths:
+  - `.github/workflows-archive/README.md`
+  - `.github/workflows-archive/lint.yml`
+  - `.github/workflows-archive/typecheck.yml`
+  - `.github/workflows-archive/unit_tests.yml`
+  - `.github/workflows/ci.yml`
+  - `.github/workflows/lint.yml`
+  - `.github/workflows/migration-sync-tooling.yml`
   - `README.md`
-  - `prd/**`
-  - `.github/workflows/**`
-  - `.github/workflows-archive/**`
-  - `config/**`
-  - `docs/public/**`
-  - `extensions/**`
-  - `scripts/**`
-  - `tests/**`
+  - `config/delta_contract_policy.json`
+  - `config/migration_sync_policy.json`
+  - `config/public_export_allowlist.yaml`
+  - `config/state_migration_manifest.json`
+  - `docs/public/BOUNDARY-CONTRACT.md`
+  - `docs/public/MIGRATION-SYNC-TOOLKIT.md`
+  - `extensions/migration_sync/README.md`
+  - `extensions/migration_sync/manifest.json`
+  - `prd/EPIC-PUBLICIZATION-UPSTREAM-SYNC-SIMPLIFICATION-v1.md`
+  - `prd/EXEC-PUBLIC-REFACTOR-PASS-SIMPLIFY-v1.md`
+  - `scripts/ci/run_db_integration_tests.sh`
+  - `scripts/ci/run_migration_sync_toolkit.sh`
+  - `scripts/ci/run_pyright.sh`
+  - `scripts/ci/run_ruff_lint.sh`
+  - `scripts/ci/run_unit_tests.sh`
+  - `scripts/delta_contract_check.py`
+  - `scripts/delta_contract_migrate.py`
+  - `scripts/delta_contracts.py`
+  - `scripts/delta_contracts_lib/__init__.py`
+  - `scripts/delta_contracts_lib/common.py`
+  - `scripts/delta_contracts_lib/contract_policy.py`
+  - `scripts/delta_contracts_lib/extension.py`
+  - `scripts/delta_contracts_lib/inspect.py`
+  - `scripts/delta_contracts_lib/package_manifest.py`
+  - `scripts/delta_contracts_lib/policy.py`
+  - `scripts/delta_contracts_lib/state_manifest.py`
+  - `scripts/delta_tool.py`
+  - `scripts/extension_contract_check.py`
+  - `scripts/migration_sync_lib.py`
+  - `scripts/public_boundary_policy.py`
+  - `scripts/public_boundary_policy_lint.py`
+  - `scripts/public_history_export.py`
+  - `scripts/public_history_scorecard.py`
+  - `scripts/public_repo_boundary_audit.py`
+  - `scripts/state_migration_check.py`
+  - `scripts/state_migration_export.py`
+  - `scripts/state_migration_import.py`
+  - `scripts/upstream_sync_doctor.py`
+  - `tests/test_delta_contract_check.py`
+  - `tests/test_delta_contract_migrate.py`
+  - `tests/test_delta_pipeline_e2e.py`
+  - `tests/test_delta_tool.py`
+  - `tests/test_extension_contract_check.py`
+  - `tests/test_public_boundary_policy.py`
+  - `tests/test_public_boundary_policy_lint.py`
+  - `tests/test_public_history_export.py`
+  - `tests/test_public_history_scorecard.py`
+  - `tests/test_public_repo_boundary_audit.py`
+  - `tests/test_state_migration_kit.py`
+  - `tests/test_upstream_sync_doctor.py`
 
 ## Overview
 Perform a targeted refactor pass to reduce complexity before migration so the public codebase is elegant, minimal, and easier to maintain.
