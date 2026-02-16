@@ -7,12 +7,15 @@
 - Depends On: task-graphiti-public-boundary-contract
 - Preferred Engine: Either
 - Owned Paths:
-  - `prd/EXEC-PUBLIC-REFACTOR-PASS-SIMPLIFY-v1.md`
-  - `ingest/**` (foundation-only files)
-  - `runtime/**` (foundation-only files)
-  - `scripts/**` (foundation-only files)
-  - `evals/**` (foundation-only files)
-  - `docs/` (only files directly documenting refactored foundation paths)
+  - `README.md`
+  - `prd/**`
+  - `.github/workflows/**`
+  - `.github/workflows-archive/**`
+  - `config/**`
+  - `docs/public/**`
+  - `extensions/**`
+  - `scripts/**`
+  - `tests/**`
 
 ## Overview
 Perform a targeted refactor pass to reduce complexity before migration so the public codebase is elegant, minimal, and easier to maintain.
@@ -47,11 +50,15 @@ Before implementation, the agent must:
 **Validation commands (run from repo root):**
 ```bash
 set -euo pipefail
-python3 scripts/run_tests.py
-python3 -m compileall ingest runtime scripts evals
-python3 scripts/run_tests.py --target policy
+bash scripts/ci/run_ruff_lint.sh
+bash scripts/ci/run_migration_sync_toolkit.sh
+python3 tests/test_delta_contract_check.py
+python3 tests/test_delta_contract_migrate.py
+python3 tests/test_delta_tool.py
+python3 tests/test_delta_pipeline_e2e.py
+python3 tests/test_state_migration_kit.py
 ```
-**Pass criteria:** all checks exit 0; no functionality regressions; compileall succeeds.
+**Pass criteria:** all checks exit 0; no functionality regressions; contract/migration invariants preserved.
 
 ## User Stories
 
