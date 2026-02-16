@@ -12,6 +12,7 @@
   - `extensions/__init__.py`
   - `extensions/contracts.py`
   - `extensions/loader.py`
+  - `extensions/migration_sync/manifest.json`
   - `scripts/extension_contract_check.py`
 
 ## Overview
@@ -44,7 +45,7 @@ Before implementation, the agent must:
 |---|---|---|
 | Centralize contract parsing/validation in a dedicated `extensions/contracts.py` model (instead of ad-hoc checks inside checker script) | **Selected** | Reduces duplication, gives one stable versioned contract surface, and makes future API version expansion easier. |
 | Move extension discovery/loading into a fail-safe loader (`extensions/loader.py`) and keep checker as a thin CLI | **Selected** | Improves maintainability and isolates failures per extension while preserving clear diagnostics. |
-| Enforce `api_version` strictly for every existing manifest immediately | **Deferred** | Existing manifests in repo and migration tests are legacy; v1 keeps compatibility via warning fallback while documenting explicit versioning as the standard forward path. |
+| Enforce `api_version` strictly for every existing manifest immediately | **Selected (incremental)** | Added explicit `api_version: 1` to the existing `migration_sync` manifest to remove compatibility-noise while preserving the fallback logic for external legacy packs. |
 | Add YAML manifest support in v1 | **Deferred** | JSON-only keeps parser complexity low and deterministic for CI; YAML can be added in a later contract version if needed. |
 
 ## Goals
@@ -63,15 +64,16 @@ Before implementation, the agent must:
 **Validation commands (run from repo root):**
 ```bash
 set -euo pipefail
+bash scripts/ci/run_ruff_lint.sh
 python3 scripts/extension_contract_check.py --strict
 python3 -m unittest tests/test_extension_contract_check.py
 python3 -m compileall extensions scripts
-bash scripts/ci/run_ruff_lint.sh
 ```
 **Pass criteria:** all commands exit 0; contract checker reports no compatibility violations.
 
 **Validation note:** `scripts/run_tests.py` is not present in this repository, so the PRD now uses
 repo-true commands that exercise extension contract behavior and CI lint parity directly.
+Ruff is intentionally run first (before any Python commands that may import modules) to avoid local `__pycache__` side-effects in lint wrappers.
 
 ## User Stories
 
