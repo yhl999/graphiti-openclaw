@@ -10,6 +10,7 @@ from pathlib import Path
 
 from delta_contracts import (
     inspect_extensions,
+    validate_delta_contract_policy,
     validate_migration_sync_policy,
     validate_state_migration_manifest,
 )
@@ -32,6 +33,12 @@ def parse_args() -> argparse.Namespace:
         help='State migration manifest JSON path',
     )
     parser.add_argument('--extensions-dir', type=Path, default=Path('extensions'))
+    parser.add_argument(
+        '--contract-policy',
+        type=Path,
+        default=Path('config/delta_contract_policy.json'),
+        help='Delta contract policy JSON path',
+    )
     parser.add_argument('--strict', action='store_true', help='Exit non-zero when issues are found')
     return parser.parse_args()
 
@@ -47,6 +54,7 @@ def main() -> int:
     policy_path = _resolve(repo_root, args.policy)
     manifest_path = _resolve(repo_root, args.state_manifest)
     extensions_dir = _resolve(repo_root, args.extensions_dir)
+    contract_policy_path = _resolve(repo_root, args.contract_policy)
 
     issues: list[str] = []
 
@@ -64,6 +72,11 @@ def main() -> int:
     except (FileNotFoundError, ValueError) as exc:
         issues.append(str(exc))
 
+    try:
+        validate_delta_contract_policy(load_json(contract_policy_path), context=str(contract_policy_path))
+    except (FileNotFoundError, ValueError) as exc:
+        issues.append(str(exc))
+
     extension_report = inspect_extensions(repo_root=repo_root, extensions_dir=extensions_dir)
     issues.extend(extension_report.issues)
 
@@ -76,6 +89,7 @@ def main() -> int:
     print(
         'Delta contract check OK '
         f'(policy={policy_path.name}, state_manifest={manifest_path.name}, '
+        f'contract_policy={contract_policy_path.name}, '
         f'extensions={len(extension_report.names)}, extension_commands={len(extension_report.command_registry)})',
     )
     return 0

@@ -11,10 +11,12 @@ This repository ships a **delta-layer migration/sync toolkit** designed for:
 
 ## Architecture (delta layer)
 
-The toolkit is now organized as:
+The toolkit is organized as layered contracts + CLIs:
 
-- `scripts/migration_sync_lib.py` — shared path/hash/git helpers
-- `scripts/delta_contracts.py` — shared schema validators (policy/manifest/package/extension)
+- `scripts/migration_sync_lib.py` — shared path/hash/git + payload integrity helpers
+- `scripts/delta_contracts.py` — compatibility facade
+- `scripts/delta_contracts_lib/` — canonical contract modules
+  - `policy.py`, `state_manifest.py`, `package_manifest.py`, `extension.py`, `inspect.py`
 - `scripts/delta_tool.py` — single command surface for all delta tooling
 - focused CLIs (`state_migration_*`, `public_history_*`, `upstream_sync_doctor.py`, `extension_contract_check.py`)
 
@@ -38,6 +40,10 @@ python3 scripts/delta_tool.py list-commands
   - required files,
   - optional globs,
   - exclusion patterns for migration package generation.
+- `config/delta_contract_policy.json`
+  - canonical contract-version metadata,
+  - migration script references,
+  - command-contract governance notes.
 
 ## 0) Validate contracts first
 
@@ -45,11 +51,30 @@ python3 scripts/delta_tool.py list-commands
 python3 scripts/delta_tool.py contracts-check -- \
   --policy config/migration_sync_policy.json \
   --state-manifest config/state_migration_manifest.json \
+  --contract-policy config/delta_contract_policy.json \
   --extensions-dir extensions \
   --strict
 ```
 
 This validates schema shape + key invariants for policy/config/extension contracts.
+
+## 0.5) Contract migration path (v1 → future)
+
+```bash
+python3 scripts/delta_tool.py contracts-migrate -- \
+  --repo . \
+  --extensions-dir extensions \
+  --contract-policy config/delta_contract_policy.json
+
+# apply in place
+python3 scripts/delta_tool.py contracts-migrate -- \
+  --repo . \
+  --extensions-dir extensions \
+  --contract-policy config/delta_contract_policy.json \
+  --write
+```
+
+Current migration support: extension command-contract normalization to v1 namespace format.
 
 ## 1) Upstream sync doctor
 
@@ -112,7 +137,7 @@ python3 scripts/delta_tool.py state-import -- \
 Notes:
 - dry-run export writes package manifest preview (no payload files copied),
 - non-dry-run export writes payload files and checksums for deterministic imports,
-- import performs path-safety + checksum + file-size validation before writing payload files.
+- import/check share the same payload integrity evaluation path.
 
 ## 4) Extension contract check
 
@@ -122,17 +147,24 @@ python3 scripts/delta_tool.py extension-check -- --strict
 
 Checks `extensions/*/manifest.json` for:
 - required fields (`name`, `version`, `capabilities`, `entrypoints`),
-- optional extension command registry (`commands`) with safe command names,
+- optional `command_contract` metadata,
+- optional extension command registry (`commands`) with **namespaced keys**:
+  - `<namespace>/<command>`
+  - `namespace` must equal normalized extension name,
 - duplicate extension names/capabilities,
-- traversal-safe relative entrypoint paths,
+- traversal-safe relative entrypoint/command paths,
 - missing entrypoint/command files.
 
-## CI command
+## CI policy
 
-The full CI pipeline is centralized in:
+Canonical CI workflows:
+- `.github/workflows/ci.yml`
+- `.github/workflows/migration-sync-tooling.yml`
+
+Legacy one-off workflows are archived under `.github/workflows-archive/` and are not part of canonical PR gating.
+
+The full migration/sync CI pipeline command is:
 
 ```bash
 bash scripts/ci/run_migration_sync_toolkit.sh
 ```
-
-Workflow: `.github/workflows/migration-sync-tooling.yml`

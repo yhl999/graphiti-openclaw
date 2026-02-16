@@ -4,6 +4,7 @@ set -euo pipefail
 python3 scripts/delta_tool.py contracts-check -- \
   --policy config/migration_sync_policy.json \
   --state-manifest config/state_migration_manifest.json \
+  --contract-policy config/delta_contract_policy.json \
   --extensions-dir extensions \
   --strict
 

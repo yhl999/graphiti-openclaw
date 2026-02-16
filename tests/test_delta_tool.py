@@ -47,6 +47,19 @@ def _valid_state_manifest() -> dict:
     }
 
 
+def _valid_contract_policy() -> dict:
+    return {
+        'version': 1,
+        'targets': {
+            'extension_command_contract': {
+                'current_version': 1,
+                'migration_script': 'scripts/delta_contract_migrate.py',
+                'notes': 'Commands must use <namespace>/<command>.',
+            },
+        },
+    }
+
+
 class DeltaToolTests(unittest.TestCase):
     def _init_repo(self, root: Path) -> None:
         subprocess.run(['git', 'init'], cwd=root, check=True, capture_output=True, text=True)
@@ -67,9 +80,13 @@ class DeltaToolTests(unittest.TestCase):
             f'{json.dumps(_valid_state_manifest(), indent=2)}\n',
             encoding='utf-8',
         )
+        (repo / 'config' / 'delta_contract_policy.json').write_text(
+            f'{json.dumps(_valid_contract_policy(), indent=2)}\n',
+            encoding='utf-8',
+        )
         (repo / 'extensions' / 'sample' / 'manifest.json').write_text(
             (
-                f'{json.dumps({"name": "sample", "version": "0.1.0", "capabilities": ["sync"], "entrypoints": {"doctor": "scripts/tool.py"}, "commands": {"sample-tool": "scripts/tool.py"}}, indent=2)}\n'
+                f'{json.dumps({"name": "sample", "version": "0.1.0", "capabilities": ["sync"], "entrypoints": {"doctor": "scripts/tool.py"}, "command_contract": {"version": 1, "namespace": "sample"}, "commands": {"sample/tool": "scripts/tool.py"}}, indent=2)}\n'
             ),
             encoding='utf-8',
         )
@@ -113,10 +130,10 @@ class DeltaToolTests(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(list_result.returncode, 0, msg=list_result.stderr)
-            self.assertIn('sample-tool', list_result.stdout)
+            self.assertIn('sample/tool', list_result.stdout)
 
             run_result = subprocess.run(
-                [sys.executable, str(SCRIPT), 'sample-tool'],
+                [sys.executable, str(SCRIPT), 'sample/tool'],
                 cwd=repo,
                 capture_output=True,
                 text=True,

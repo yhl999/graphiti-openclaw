@@ -47,6 +47,19 @@ def _valid_state_manifest() -> dict:
     }
 
 
+def _valid_contract_policy() -> dict:
+    return {
+        'version': 1,
+        'targets': {
+            'extension_command_contract': {
+                'current_version': 1,
+                'migration_script': 'scripts/delta_contract_migrate.py',
+                'notes': 'Commands must use <namespace>/<command>.',
+            },
+        },
+    }
+
+
 class DeltaContractCheckTests(unittest.TestCase):
     def _init_repo(self, root: Path) -> None:
         subprocess.run(['git', 'init'], cwd=root, check=True, capture_output=True, text=True)
@@ -65,6 +78,10 @@ class DeltaContractCheckTests(unittest.TestCase):
         )
         (root / 'config' / 'state_migration_manifest.json').write_text(
             f'{json.dumps(_valid_state_manifest(), indent=2)}\n',
+            encoding='utf-8',
+        )
+        (root / 'config' / 'delta_contract_policy.json').write_text(
+            f'{json.dumps(_valid_contract_policy(), indent=2)}\n',
             encoding='utf-8',
         )
         (root / 'extensions' / 'sample' / 'manifest.json').write_text(

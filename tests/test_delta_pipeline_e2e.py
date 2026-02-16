@@ -94,6 +94,21 @@ class DeltaPipelineE2ETests(unittest.TestCase):
             encoding='utf-8',
         )
 
+        contract_policy = {
+            'version': 1,
+            'targets': {
+                'extension_command_contract': {
+                    'current_version': 1,
+                    'migration_script': 'scripts/delta_contract_migrate.py',
+                    'notes': 'Commands must use <namespace>/<command>.',
+                },
+            },
+        }
+        (repo / 'config' / 'delta_contract_policy.json').write_text(
+            f'{json.dumps(contract_policy, indent=2)}\n',
+            encoding='utf-8',
+        )
+
         state_manifest = {
             'version': 1,
             'package_name': 'delta-state',
@@ -102,6 +117,7 @@ class DeltaPipelineE2ETests(unittest.TestCase):
                 'config/public_export_denylist.yaml',
                 'config/migration_sync_policy.json',
                 'config/state_migration_manifest.json',
+                'config/delta_contract_policy.json',
             ],
             'optional_globs': ['docs/public/*.md', 'scripts/*.py', 'extensions/**'],
             'exclude_globs': ['**/__pycache__/**', '**/*.pyc'],
@@ -119,7 +135,8 @@ class DeltaPipelineE2ETests(unittest.TestCase):
             'version': '0.1.0',
             'capabilities': ['demo'],
             'entrypoints': {'run': 'scripts/tool.py'},
-            'commands': {'demo-tool-run': 'scripts/tool.py'},
+            'command_contract': {'version': 1, 'namespace': 'demo-extension'},
+            'commands': {'demo-extension/tool-run': 'scripts/tool.py'},
         }
         (repo / 'extensions' / 'demo' / 'manifest.json').write_text(
             f'{json.dumps(extension_manifest, indent=2)}\n',
@@ -273,7 +290,7 @@ class DeltaPipelineE2ETests(unittest.TestCase):
             )
             self.assertEqual(extension_check.returncode, 0, msg=extension_check.stderr)
 
-            extension_command = self._run_delta(repo, 'demo-tool-run')
+            extension_command = self._run_delta(repo, 'demo-extension/tool-run')
             self.assertEqual(extension_command.returncode, 0, msg=extension_command.stderr)
             self.assertIn('extension-command-ok', extension_command.stdout)
 

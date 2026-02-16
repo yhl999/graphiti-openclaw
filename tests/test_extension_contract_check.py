@@ -107,6 +107,53 @@ class ExtensionContractCheckTests(unittest.TestCase):
             self.assertEqual(result.returncode, 1)
             self.assertIn('capabilities must not contain duplicates', result.stderr)
 
+    def test_fails_when_commands_missing_command_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            tool = repo / 'scripts' / 'tool.py'
+            tool.parent.mkdir(parents=True, exist_ok=True)
+            tool.write_text('print("ok")\n', encoding='utf-8')
+
+            self._write_manifest(
+                repo,
+                'missing-command-contract',
+                {
+                    'name': 'sample-extension',
+                    'version': '0.1.0',
+                    'capabilities': ['sync'],
+                    'entrypoints': {'doctor': 'scripts/tool.py'},
+                    'commands': {'sample-extension/doctor': 'scripts/tool.py'},
+                },
+            )
+
+            result = self._run(repo)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn('command_contract', result.stderr)
+
+    def test_passes_with_namespaced_command_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            tool = repo / 'scripts' / 'tool.py'
+            tool.parent.mkdir(parents=True, exist_ok=True)
+            tool.write_text('print("ok")\n', encoding='utf-8')
+
+            self._write_manifest(
+                repo,
+                'valid-command-contract',
+                {
+                    'name': 'sample-extension',
+                    'version': '0.1.0',
+                    'capabilities': ['sync'],
+                    'entrypoints': {'doctor': 'scripts/tool.py'},
+                    'command_contract': {'version': 1, 'namespace': 'sample-extension'},
+                    'commands': {'sample-extension/doctor': 'scripts/tool.py'},
+                },
+            )
+
+            result = self._run(repo)
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertIn('extension commands: 1', result.stdout)
+
 
 if __name__ == '__main__':
     unittest.main()

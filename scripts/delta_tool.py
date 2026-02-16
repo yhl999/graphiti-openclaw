@@ -15,6 +15,7 @@ CORE_COMMAND_TO_SCRIPT = {
     'boundary-audit': 'public_repo_boundary_audit.py',
     'boundary-lint': 'public_boundary_policy_lint.py',
     'contracts-check': 'delta_contract_check.py',
+    'contracts-migrate': 'delta_contract_migrate.py',
     'extension-check': 'extension_contract_check.py',
     'sync-doctor': 'upstream_sync_doctor.py',
     'history-export': 'public_history_export.py',
