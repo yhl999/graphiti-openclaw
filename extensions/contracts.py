@@ -96,24 +96,16 @@ def _expect_int(value: object, *, context: str, min_value: int = 1) -> int:
     return value
 
 
-def _expect_string_list(
-    value: object,
-    *,
-    context: str,
-    allow_empty: bool,
-    unique: bool,
-) -> list[str]:
+def _expect_non_empty_unique_string_list(value: object, *, context: str) -> list[str]:
     if not isinstance(value, list):
         raise ValueError(f'{context} must be a list of strings')
 
-    parsed: list[str] = []
-    for index, item in enumerate(value):
-        parsed.append(_expect_non_empty_str(item, context=f'{context}[{index}]'))
+    parsed = [_expect_non_empty_str(item, context=f'{context}[{index}]') for index, item in enumerate(value)]
 
-    if not allow_empty and not parsed:
+    if not parsed:
         raise ValueError(f'{context} must not be empty')
 
-    if unique and len(set(parsed)) != len(parsed):
+    if len(set(parsed)) != len(parsed):
         raise ValueError(f'{context} must not contain duplicates')
 
     return parsed
@@ -127,22 +119,15 @@ def _validate_command_segment(value: object, *, context: str) -> str:
 
 
 def _resolve_api_version(payload: dict[str, Any], *, context: str) -> tuple[int, list[str]]:
-    warnings: list[str] = []
     raw_api_version = payload.get('api_version')
 
+    warnings: list[str] = []
     if raw_api_version is None:
-        inferred = EXTENSION_API_VERSION
-        command_contract = payload.get('command_contract')
-        if isinstance(command_contract, dict):
-            version_value = command_contract.get('version')
-            if isinstance(version_value, int) and version_value >= 1:
-                inferred = version_value
-
+        api_version = EXTENSION_API_VERSION
         warnings.append(
-            f'{context}.api_version missing; defaulting to `{inferred}` for backward compatibility. '
+            f'{context}.api_version missing; defaulting to `{api_version}` for backward compatibility. '
             'Set api_version explicitly.',
         )
-        api_version = inferred
     else:
         api_version = _expect_int(raw_api_version, context=f'{context}.api_version', min_value=1)
 
@@ -178,7 +163,7 @@ def _validate_command_contract(
     payload: dict[str, Any],
     *,
     context: str,
-    extension_name: str,
+    expected_namespace: str,
     api_version: int,
 ) -> ExtensionCommandContract | None:
     command_contract_raw = payload.get('command_contract')
@@ -195,12 +180,6 @@ def _validate_command_contract(
         command_contract.get('namespace'),
         context=f'{context}.command_contract.namespace',
     )
-
-    expected_namespace = normalize_extension_name(extension_name)
-    if not expected_namespace:
-        raise ValueError(
-            f'{context}.name `{extension_name}` cannot be normalized to a namespace',
-        )
 
     if namespace != expected_namespace:
         raise ValueError(
@@ -274,17 +253,24 @@ def parse_extension_manifest(
     manifest_raw = _expect_dict(payload, context=context)
 
     name = _expect_non_empty_str(manifest_raw.get('name'), context=f'{context}.name')
+    normalized_name = normalize_extension_name(name)
+    if not normalized_name:
+        raise ValueError(
+            f'{context}.name `{name}` must include letters or digits after normalization',
+        )
+
     version = _expect_non_empty_str(manifest_raw.get('version'), context=f'{context}.version')
 
     description: str | None = None
     if 'description' in manifest_raw and manifest_raw.get('description') is not None:
-        description = _expect_non_empty_str(manifest_raw.get('description'), context=f'{context}.description')
+        description = _expect_non_empty_str(
+            manifest_raw.get('description'),
+            context=f'{context}.description',
+        )
 
-    capabilities = _expect_string_list(
+    capabilities = _expect_non_empty_unique_string_list(
         manifest_raw.get('capabilities'),
         context=f'{context}.capabilities',
-        allow_empty=False,
-        unique=True,
     )
 
     api_version, warnings = _resolve_api_version(manifest_raw, context=context)
@@ -293,7 +279,7 @@ def parse_extension_manifest(
     command_contract = _validate_command_contract(
         manifest_raw,
         context=context,
-        extension_name=name,
+        expected_namespace=normalized_name,
         api_version=api_version,
     )
     commands = _validate_commands(

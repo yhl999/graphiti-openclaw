@@ -6,16 +6,35 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
-# Ensure repository-local package imports work even when this script is executed
-# from another cwd (e.g. tests using temporary repos).
-SCRIPT_REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(SCRIPT_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(SCRIPT_REPO_ROOT))
-
-from extensions.loader import load_extensions
 from migration_sync_lib import resolve_repo_root
+
+LoadExtensionsFn = Callable[..., Any]
+
+
+def _import_load_extensions(script_repo_root: Path) -> LoadExtensionsFn:
+    """Import ``extensions.loader.load_extensions`` from this repository.
+
+    The checker can run from arbitrary working directories (for example tests
+    that execute against temporary repos). Resolve imports from the script's
+    repository root instead of relying on cwd.
+    """
+
+    root = str(script_repo_root)
+    if root not in sys.path:
+        sys.path.insert(0, root)
+
+    try:
+        from extensions.loader import load_extensions
+    except ModuleNotFoundError as exc:
+        raise ModuleNotFoundError(
+            f'Unable to import `extensions.loader` from repo root: {script_repo_root}',
+        ) from exc
+
+    return load_extensions
 
 
 def _resolve_repo(candidate: Path) -> Path:
@@ -35,6 +54,9 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    script_repo_root = Path(__file__).resolve().parents[1]
+    load_extensions = _import_load_extensions(script_repo_root)
+
     repo_root = _resolve_repo(args.repo.resolve())
     extensions_dir = args.extensions_dir if args.extensions_dir.is_absolute() else (repo_root / args.extensions_dir)
 

@@ -16,13 +16,13 @@ Each extension lives under:
 
 - `extensions/<extension-id>/manifest.json`
 
-The loader discovers direct child folders of `extensions/` and reads `manifest.json`.
+The loader discovers direct child folders of `extensions/`.
 
 ## Contract fields (v1)
 
 Required fields:
 
-- `name` (string)
+- `name` (string; must normalize to a non-empty slug)
 - `version` (string)
 - `api_version` (integer, currently `1`)
 - `capabilities` (non-empty list of unique strings)
@@ -39,7 +39,7 @@ Optional fields:
 ### `api_version` semantics
 
 - `api_version=1` is the current supported contract.
-- Unknown versions are rejected in strict mode with a clear incompatibility message.
+- Unknown versions are rejected.
 - Legacy manifests without `api_version` are tolerated for compatibility and emit warnings.
   New extensions should always set `api_version` explicitly.
 
@@ -68,10 +68,10 @@ Optional fields:
 ## Loader behavior
 
 - Extension loading is **optional**.
-- Missing `extensions/` directory is treated as non-fatal (warning only).
+- Missing `extensions/` directory is non-fatal (warning only).
 - Each extension is validated independently.
 - Invalid extensions are isolated and reported; valid extensions continue loading.
-- Duplicate extension names or duplicate command IDs across extensions are rejected.
+- Duplicate extension names (after normalization) or duplicate command IDs are rejected.
 
 ## Contract checker
 
@@ -81,7 +81,7 @@ Run strict checker:
 python3 scripts/extension_contract_check.py --strict
 ```
 
-Strict mode returns non-zero when compatibility errors exist.
+Strict mode fails on compatibility **errors**; warnings are still printed for cleanup guidance.
 
 ## Layering rules
 

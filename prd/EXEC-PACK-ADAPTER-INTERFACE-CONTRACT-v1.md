@@ -64,10 +64,14 @@ Before implementation, the agent must:
 ```bash
 set -euo pipefail
 python3 scripts/extension_contract_check.py --strict
-python3 scripts/run_tests.py --target extensions
+python3 -m unittest tests/test_extension_contract_check.py
 python3 -m compileall extensions scripts
+bash scripts/ci/run_ruff_lint.sh
 ```
 **Pass criteria:** all commands exit 0; contract checker reports no compatibility violations.
+
+**Validation note:** `scripts/run_tests.py` is not present in this repository, so the PRD now uses
+repo-true commands that exercise extension contract behavior and CI lint parity directly.
 
 ## User Stories
 

@@ -10,6 +10,7 @@ from typing import Literal
 from .contracts import ExtensionManifest, ensure_safe_relative_path, parse_extension_manifest
 
 DiagnosticLevel = Literal['warning', 'error']
+MANIFEST_FILENAME = 'manifest.json'
 
 
 @dataclass(slots=True)
@@ -73,17 +74,22 @@ def _is_extension_dir(candidate: Path) -> bool:
     return candidate.is_dir()
 
 
+def _iter_extension_dirs(extensions_dir: Path) -> list[Path]:
+    return sorted(candidate for candidate in extensions_dir.iterdir() if _is_extension_dir(candidate))
+
+
 def discover_extension_manifests(extensions_dir: Path) -> list[Path]:
     """Return discovered manifest paths for direct extension folders."""
 
     if not extensions_dir.exists() or not extensions_dir.is_dir():
         return []
 
-    return sorted(
-        candidate / 'manifest.json'
-        for candidate in extensions_dir.iterdir()
-        if _is_extension_dir(candidate) and (candidate / 'manifest.json').exists()
-    )
+    manifests: list[Path] = []
+    for extension_dir in _iter_extension_dirs(extensions_dir):
+        manifest = extension_dir / MANIFEST_FILENAME
+        if manifest.exists():
+            manifests.append(manifest)
+    return manifests
 
 
 def _resolve_extensions_dir(repo_root: Path, extensions_dir: Path | None) -> Path:
@@ -155,15 +161,15 @@ def _load_single_extension(
     repo_root: Path,
     extension_dir: Path,
     report: ExtensionLoadReport,
-    seen_names: set[str],
+    seen_names: dict[str, str],
     seen_commands: set[str],
 ) -> None:
-    manifest_path = extension_dir / 'manifest.json'
+    manifest_path = extension_dir / MANIFEST_FILENAME
     if not manifest_path.exists():
         report.diagnostics.append(
             ExtensionDiagnostic(
                 level='warning',
-                location=extension_dir.name,
+                location=str(extension_dir),
                 message='missing manifest.json; skipping directory',
                 hint='Add manifest.json or remove this directory from extensions/.',
             ),
@@ -209,12 +215,17 @@ def _load_single_extension(
             ),
         )
 
-    if manifest.name in seen_names:
+    normalized_name = manifest.normalized_name
+    existing_name = seen_names.get(normalized_name)
+    if existing_name is not None:
         report.diagnostics.append(
             ExtensionDiagnostic(
                 level='error',
                 location=str(manifest_path),
-                message=f'duplicate extension name `{manifest.name}`',
+                message=(
+                    f'duplicate extension name `{manifest.name}` conflicts with `{existing_name}` '
+                    f'(normalized: `{normalized_name}`)'
+                ),
                 hint='Rename the extension or remove duplicate manifests.',
             ),
         )
@@ -266,7 +277,7 @@ def _load_single_extension(
     if extension_failed:
         return
 
-    seen_names.add(manifest.name)
+    seen_names[normalized_name] = manifest.name
     seen_commands.update(resolved_commands)
     report.loaded_extensions.append(
         LoadedExtension(
@@ -316,10 +327,10 @@ def load_extensions(
         )
         return report
 
-    seen_names: set[str] = set()
+    seen_names: dict[str, str] = {}
     seen_commands: set[str] = set()
 
-    for extension_dir in sorted(candidate for candidate in resolved_extensions_dir.iterdir() if _is_extension_dir(candidate)):
+    for extension_dir in _iter_extension_dirs(resolved_extensions_dir):
         _load_single_extension(
             repo_root=resolved_repo,
             extension_dir=extension_dir,
