@@ -9,6 +9,17 @@ This repository ships a **delta-layer migration/sync toolkit** designed for:
 
 `graphiti_core/**` is intentionally out of scope for this toolkit.
 
+## Architecture (delta layer)
+
+The toolkit is now organized as:
+
+- `scripts/migration_sync_lib.py` — shared path/hash/git helpers
+- `scripts/delta_contracts.py` — shared schema validators (policy/manifest/package/extension)
+- `scripts/delta_tool.py` — single command surface for all delta tooling
+- focused CLIs (`state_migration_*`, `public_history_*`, `upstream_sync_doctor.py`, `extension_contract_check.py`)
+
+Use `delta_tool.py` as the preferred entrypoint.
+
 ## Policy config
 
 - `config/migration_sync_policy.json`
@@ -22,10 +33,22 @@ This repository ships a **delta-layer migration/sync toolkit** designed for:
   - optional globs,
   - exclusion patterns for migration package generation.
 
+## 0) Validate contracts first
+
+```bash
+python3 scripts/delta_tool.py contracts-check -- \
+  --policy config/migration_sync_policy.json \
+  --state-manifest config/state_migration_manifest.json \
+  --extensions-dir extensions \
+  --strict
+```
+
+This validates schema shape + key invariants for policy/config/extension contracts.
+
 ## 1) Upstream sync doctor
 
 ```bash
-python3 scripts/upstream_sync_doctor.py \
+python3 scripts/delta_tool.py sync-doctor -- \
   --repo . \
   --policy config/migration_sync_policy.json \
   --dry-run \
@@ -38,21 +61,21 @@ Use `--allow-dirty` only for local diagnostics when you intentionally run checks
 ## 2) History candidate reports + scorecard
 
 ```bash
-python3 scripts/public_history_export.py \
+python3 scripts/delta_tool.py history-export -- \
   --repo . \
   --mode filtered-history \
   --dry-run \
   --report reports/publicization/filtered-history.md \
   --summary-json reports/publicization/filtered-history.json
 
-python3 scripts/public_history_export.py \
+python3 scripts/delta_tool.py history-export -- \
   --repo . \
   --mode clean-foundation \
   --dry-run \
   --report reports/publicization/clean-foundation.md \
   --summary-json reports/publicization/clean-foundation.json
 
-python3 scripts/public_history_scorecard.py \
+python3 scripts/delta_tool.py history-scorecard -- \
   --filtered-summary reports/publicization/filtered-history.json \
   --clean-summary reports/publicization/clean-foundation.json \
   --policy config/migration_sync_policy.json \
@@ -66,16 +89,16 @@ Policy fallback rule is encoded in scorecard output:
 ## 3) State migration kit
 
 ```bash
-python3 scripts/state_migration_export.py \
+python3 scripts/delta_tool.py state-export -- \
   --manifest config/state_migration_manifest.json \
   --out /tmp/graphiti-state-export \
   --dry-run
 
-python3 scripts/state_migration_check.py \
+python3 scripts/delta_tool.py state-check -- \
   --package /tmp/graphiti-state-export \
   --dry-run
 
-python3 scripts/state_migration_import.py \
+python3 scripts/delta_tool.py state-import -- \
   --in /tmp/graphiti-state-export \
   --dry-run
 ```
@@ -88,7 +111,7 @@ Notes:
 ## 4) Extension contract check
 
 ```bash
-python3 scripts/extension_contract_check.py --strict
+python3 scripts/delta_tool.py extension-check -- --strict
 ```
 
 Checks `extensions/*/manifest.json` for:
@@ -96,3 +119,13 @@ Checks `extensions/*/manifest.json` for:
 - duplicate extension names/capabilities,
 - traversal-safe relative entrypoint paths,
 - missing entrypoint files.
+
+## CI command
+
+The full CI pipeline is centralized in:
+
+```bash
+bash scripts/ci/run_migration_sync_toolkit.sh
+```
+
+Workflow: `.github/workflows/migration-sync-tooling.yml`

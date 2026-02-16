@@ -120,6 +120,7 @@ class PublicHistoryExportTests(unittest.TestCase):
             (repo / 'config' / 'migration_sync_policy.json').write_text(
                 json.dumps(
                     {
+                        'version': 1,
                         'history_metrics': {
                             'filtered_history': {
                                 'privacy_risk': {

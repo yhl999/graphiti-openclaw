@@ -9,6 +9,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from delta_contracts import validate_state_migration_manifest
 from migration_sync_lib import (
     collect_file_entries,
     collect_manifest_files,
@@ -37,34 +38,18 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _validate_manifest(manifest: dict) -> tuple[list[str], list[str], list[str], int, str]:
-    required_files = manifest.get('required_files')
-    optional_globs = manifest.get('optional_globs')
-    exclude_globs = manifest.get('exclude_globs')
-    version = manifest.get('version')
-    package_name = manifest.get('package_name', 'graphiti-openclaw-state-migration')
-
-    if not isinstance(required_files, list) or not all(isinstance(item, str) for item in required_files):
-        raise ValueError('Manifest field `required_files` must be a list of strings')
-    if not isinstance(optional_globs, list) or not all(isinstance(item, str) for item in optional_globs):
-        raise ValueError('Manifest field `optional_globs` must be a list of strings')
-    if not isinstance(exclude_globs, list) or not all(isinstance(item, str) for item in exclude_globs):
-        raise ValueError('Manifest field `exclude_globs` must be a list of strings')
-    if not isinstance(version, int):
-        raise ValueError('Manifest field `version` must be an integer')
-    if not isinstance(package_name, str) or not package_name.strip():
-        raise ValueError('Manifest field `package_name` must be a non-empty string')
-
-    return required_files, optional_globs, exclude_globs, version, package_name.strip()
-
-
 def main() -> int:
     args = parse_args()
     repo_root = resolve_repo_root(args.repo.resolve())
 
     manifest_path = args.manifest if args.manifest.is_absolute() else (repo_root / args.manifest).resolve()
-    manifest = load_json(manifest_path)
-    required_files, optional_globs, exclude_globs, manifest_version, package_name = _validate_manifest(manifest)
+    manifest = validate_state_migration_manifest(load_json(manifest_path), context=str(manifest_path))
+
+    required_files = list(manifest['required_files'])
+    optional_globs = list(manifest['optional_globs'])
+    exclude_globs = list(manifest['exclude_globs'])
+    manifest_version = int(manifest['version'])
+    package_name = str(manifest['package_name']).strip()
 
     files = collect_manifest_files(repo_root, required_files, optional_globs, exclude_globs)
     entries = collect_file_entries(files, repo_root)
@@ -98,7 +83,7 @@ def main() -> int:
 
     if not args.dry_run:
         for entry in entries:
-            rel = entry['path']
+            rel = str(entry['path'])
             copy_entry(repo_root, payload_root, rel)
 
     print(f'Package manifest written: {package_root / "package_manifest.json"}')
@@ -108,7 +93,7 @@ def main() -> int:
         print(f'Payload files copied: {len(entries)}')
 
     by_top_level: dict[str, int] = {}
-    for path in (entry['path'] for entry in entries):
+    for path in (str(entry['path']) for entry in entries):
         top = path.split('/', 1)[0]
         by_top_level[top] = by_top_level.get(top, 0) + 1
     summary = ', '.join(f'{key}={value}' for key, value in sorted(by_top_level.items()))

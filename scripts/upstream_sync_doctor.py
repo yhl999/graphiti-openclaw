@@ -8,6 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from delta_contracts import validate_migration_sync_policy
 from migration_sync_lib import dump_json, load_json, resolve_repo_root, run_git
 
 
@@ -43,7 +44,7 @@ def main() -> int:
     args = parse_args()
     repo_root = resolve_repo_root(args.repo.resolve())
     policy_path = args.policy if args.policy.is_absolute() else (repo_root / args.policy).resolve()
-    policy = load_json(policy_path)
+    policy = validate_migration_sync_policy(load_json(policy_path), context=str(policy_path))
 
     upstream_cfg = policy.get('upstream', {})
     origin_cfg = policy.get('origin', {})

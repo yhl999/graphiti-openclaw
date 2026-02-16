@@ -8,6 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from delta_contracts import validate_migration_sync_policy
 from migration_sync_lib import dump_json, load_json, now_utc_iso
 
 METRIC_KEYS = ('privacy_risk', 'simplicity', 'merge_conflict_risk', 'auditability')
@@ -51,7 +52,8 @@ def main() -> int:
     args = parse_args()
     filtered_summary = load_json(_resolve(args.filtered_summary))
     clean_summary = load_json(_resolve(args.clean_summary))
-    policy = load_json(_resolve(args.policy))
+    policy_path = _resolve(args.policy)
+    policy = validate_migration_sync_policy(load_json(policy_path), context=str(policy_path))
 
     score_cfg = policy.get('scorecard', {})
     threshold = float(score_cfg.get('clean_foundation_threshold', 80))

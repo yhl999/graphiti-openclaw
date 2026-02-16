@@ -13,6 +13,7 @@ allowlist:
   - "scripts/public_boundary_policy.py"
   - "scripts/public_boundary_policy_lint.py"
   - "scripts/migration_sync_lib.py"
+  - "scripts/delta_*.py"
   - "scripts/public_history_*.py"
   - "scripts/upstream_sync_doctor.py"
   - "scripts/state_migration_*.py"

@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from delta_contracts import validate_migration_sync_policy
 from migration_sync_lib import dump_json, load_json, now_utc_iso, resolve_repo_root, run_git
 from public_boundary_policy import (
     ALLOW,
@@ -189,7 +190,7 @@ def _load_history_metrics(policy_path: Path) -> tuple[dict[str, Any], bool]:
     if not policy_path.exists():
         return DEFAULT_HISTORY_METRICS, False
 
-    policy_payload = load_json(policy_path)
+    policy_payload = validate_migration_sync_policy(load_json(policy_path), context=str(policy_path))
     history_cfg = policy_payload.get('history_metrics')
     if not isinstance(history_cfg, dict):
         return DEFAULT_HISTORY_METRICS, True

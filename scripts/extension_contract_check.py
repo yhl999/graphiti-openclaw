@@ -8,7 +8,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from migration_sync_lib import ensure_safe_relative, load_json, resolve_safe_child
+from delta_contracts import validate_extension_manifest
+from migration_sync_lib import load_json, resolve_safe_child
 
 
 def parse_args() -> argparse.Namespace:
@@ -16,10 +17,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--extensions-dir', type=Path, default=Path('extensions'))
     parser.add_argument('--strict', action='store_true', help='Exit non-zero when issues are found')
     return parser.parse_args()
-
-
-def _is_non_empty_string(value: object) -> bool:
-    return isinstance(value, str) and bool(value.strip())
 
 
 def main() -> int:
@@ -41,51 +38,33 @@ def main() -> int:
             issues.append(f'{extension_dir.name}: missing manifest.json')
             continue
 
-        manifest = load_json(manifest_path)
-        name = manifest.get('name')
-        version = manifest.get('version')
-        capabilities = manifest.get('capabilities')
-        entrypoints = manifest.get('entrypoints')
-
-        if not _is_non_empty_string(name):
-            issues.append(f'{extension_dir.name}: `name` must be a non-empty string')
+        try:
+            manifest = validate_extension_manifest(load_json(manifest_path), context=str(manifest_path))
+        except (FileNotFoundError, ValueError) as exc:
+            issues.append(str(exc))
             continue
 
-        normalized_name = name.strip()
+        normalized_name = str(manifest['name']).strip()
         if normalized_name in names:
             issues.append(f'{extension_dir.name}: duplicate extension name `{normalized_name}`')
         names.add(normalized_name)
 
-        if not _is_non_empty_string(version):
-            issues.append(f'{normalized_name}: `version` must be a non-empty string')
-
-        if not isinstance(capabilities, list) or not all(_is_non_empty_string(item) for item in capabilities):
-            issues.append(f'{normalized_name}: `capabilities` must be a list of non-empty strings')
-        elif len({item.strip() for item in capabilities}) != len(capabilities):
-            issues.append(f'{normalized_name}: `capabilities` contains duplicates')
-
-        if not isinstance(entrypoints, dict) or not entrypoints:
-            issues.append(f'{normalized_name}: `entrypoints` must be a non-empty object')
-        else:
+        entrypoints = manifest.get('entrypoints', {})
+        if isinstance(entrypoints, dict):
             for key, rel in entrypoints.items():
-                if not _is_non_empty_string(key) or not _is_non_empty_string(rel):
-                    issues.append(f'{normalized_name}: invalid entrypoint pair `{key}` -> `{rel}`')
+                if not isinstance(key, str) or not isinstance(rel, str):
                     continue
-
-                rel_path = str(rel).strip()
                 try:
-                    ensure_safe_relative(rel_path)
                     candidate = resolve_safe_child(
                         repo_root,
-                        rel_path,
-                        context=f'extension `{normalized_name}` entrypoint',
+                        rel,
+                        context=f'extension `{normalized_name}` entrypoint `{key}`',
                     )
                 except ValueError as exc:
-                    issues.append(f'{normalized_name}: {exc}')
+                    issues.append(str(exc))
                     continue
-
                 if not candidate.exists() or not candidate.is_file():
-                    issues.append(f'{normalized_name}: entrypoint path missing `{rel_path}`')
+                    issues.append(f'{normalized_name}: entrypoint path missing `{rel}`')
 
         discovered.append(normalized_name)
 

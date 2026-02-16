@@ -22,56 +22,8 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Validate extension contracts
-        run: python3 scripts/extension_contract_check.py --strict
-
-      - name: Run upstream sync doctor (dry-run)
-        run: |
-          python3 scripts/upstream_sync_doctor.py \
-            --repo . \
-            --policy config/migration_sync_policy.json \
-            --dry-run \
-            --allow-missing-upstream \
-            --output-json /tmp/upstream-sync-doctor.json
-
-      - name: Build history migration candidate summaries
-        run: |
-          python3 scripts/public_history_export.py \
-            --repo . \
-            --mode filtered-history \
-            --dry-run \
-            --report /tmp/filtered-history.md \
-            --summary-json /tmp/filtered-history.json
-
-          python3 scripts/public_history_export.py \
-            --repo . \
-            --mode clean-foundation \
-            --dry-run \
-            --report /tmp/clean-foundation.md \
-            --summary-json /tmp/clean-foundation.json
-
-          python3 scripts/public_history_scorecard.py \
-            --filtered-summary /tmp/filtered-history.json \
-            --clean-summary /tmp/clean-foundation.json \
-            --policy config/migration_sync_policy.json \
-            --out /tmp/history-scorecard.md \
-            --summary-json /tmp/history-scorecard.json
-
-      - name: Run state migration kit dry-run checks
-        run: |
-          python3 scripts/state_migration_export.py \
-            --manifest config/state_migration_manifest.json \
-            --out /tmp/graphiti-state-export \
-            --dry-run \
-            --force
-
-          python3 scripts/state_migration_check.py \
-            --package /tmp/graphiti-state-export \
-            --dry-run
-
-          python3 scripts/state_migration_import.py \
-            --in /tmp/graphiti-state-export \
-            --dry-run
+      - name: Run migration/sync toolkit pipeline
+        run: bash scripts/ci/run_migration_sync_toolkit.sh
 
       - name: Upload migration/sync artifacts
         uses: actions/upload-artifact@v4

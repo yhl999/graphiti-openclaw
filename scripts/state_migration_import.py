@@ -8,7 +8,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from migration_sync_lib import ensure_safe_relative, load_json, resolve_safe_child, sha256_file
+from delta_contracts import validate_package_manifest
+from migration_sync_lib import load_json, resolve_safe_child, sha256_file
 
 
 def parse_args() -> argparse.Namespace:
@@ -20,38 +21,16 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _as_entry(index: int, entry: object) -> dict:
-    if not isinstance(entry, dict):
-        raise ValueError(f'Invalid migration entry object at index {index}')
-
-    required = ('path', 'sha256', 'size_bytes')
-    missing = [key for key in required if key not in entry]
-    if missing:
-        raise ValueError(
-            f'Migration entry #{index} missing keys: {", ".join(missing)}',
-        )
-
-    path = entry.get('path')
-    digest = entry.get('sha256')
-    size_bytes = entry.get('size_bytes')
-
-    if not isinstance(path, str):
-        raise ValueError(f'Migration entry #{index} has invalid `path` type')
-    if not isinstance(digest, str) or len(digest) != 64:
-        raise ValueError(f'Migration entry #{index} has invalid `sha256` value')
-    if not isinstance(size_bytes, int) or size_bytes < 0:
-        raise ValueError(f'Migration entry #{index} has invalid `size_bytes` value')
-
-    ensure_safe_relative(path)
-    return entry
-
-
 def main() -> int:
     args = parse_args()
     package_root = args.package if args.package.is_absolute() else (Path.cwd() / args.package).resolve()
     target_root = args.target if args.target.is_absolute() else (Path.cwd() / args.target).resolve()
 
-    manifest = load_json(package_root / 'package_manifest.json')
+    manifest = validate_package_manifest(
+        load_json(package_root / 'package_manifest.json'),
+        context=str(package_root / 'package_manifest.json'),
+    )
+
     entries = manifest.get('entries', [])
     if not isinstance(entries, list):
         raise ValueError('Manifest field `entries` must be a list')
@@ -64,8 +43,9 @@ def main() -> int:
     missing_payload: list[str] = []
     integrity_errors: list[str] = []
 
-    for index, raw_entry in enumerate(entries):
-        entry = _as_entry(index, raw_entry)
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise ValueError('Invalid migration entry object in manifest')
 
         rel = str(entry['path'])
         expected_hash = str(entry['sha256'])

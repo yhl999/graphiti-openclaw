@@ -72,6 +72,7 @@ class PublicHistoryScorecardTests(unittest.TestCase):
                 'risk_flags': {'unresolved_high': False},
             }
             policy = {
+                'version': 1,
                 'scorecard': {
                     'clean_foundation_threshold': 80,
                     'weights': {
@@ -111,6 +112,7 @@ class PublicHistoryScorecardTests(unittest.TestCase):
                 'risk_flags': {'unresolved_high': False},
             }
             policy = {
+                'version': 1,
                 'scorecard': {
                     'clean_foundation_threshold': 80,
                     'weights': {

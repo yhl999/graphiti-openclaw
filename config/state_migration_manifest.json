@@ -12,6 +12,7 @@
     "scripts/ci/*.sh",
     "scripts/public_*.py",
     "scripts/migration_sync_lib.py",
+    "scripts/delta_*.py",
     "scripts/upstream_sync_doctor.py",
     "scripts/state_migration_*.py",
     "scripts/extension_contract_check.py",

@@ -76,7 +76,7 @@ class ExtensionContractCheckTests(unittest.TestCase):
                 {
                     'name': 'unsafe-extension',
                     'version': '0.1.0',
-                    'capabilities': ['sync', 'sync'],
+                    'capabilities': ['sync'],
                     'entrypoints': {'doctor': '../outside.py'},
                 },
             )
@@ -84,7 +84,28 @@ class ExtensionContractCheckTests(unittest.TestCase):
             result = self._run(repo)
             self.assertEqual(result.returncode, 1)
             self.assertIn('Unsafe package entry path', result.stderr)
-            self.assertIn('capabilities` contains duplicates', result.stderr)
+
+    def test_fails_on_duplicate_capabilities(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            tool = repo / 'scripts' / 'tool.py'
+            tool.parent.mkdir(parents=True, exist_ok=True)
+            tool.write_text('print("ok")\n', encoding='utf-8')
+
+            self._write_manifest(
+                repo,
+                'invalid-caps',
+                {
+                    'name': 'dup-cap-extension',
+                    'version': '0.1.0',
+                    'capabilities': ['sync', 'sync'],
+                    'entrypoints': {'doctor': 'scripts/tool.py'},
+                },
+            )
+
+            result = self._run(repo)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn('capabilities must not contain duplicates', result.stderr)
 
 
 if __name__ == '__main__':
