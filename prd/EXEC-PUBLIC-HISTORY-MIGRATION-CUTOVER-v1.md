@@ -8,10 +8,10 @@
 - Preferred Engine: Either
 - Owned Paths:
   - `prd/EXEC-PUBLIC-HISTORY-MIGRATION-CUTOVER-v1.md`
-  - `scripts/public_history_export.py` (new)
-  - `scripts/public_history_scorecard.py` (new)
-  - `docs/public/HISTORY-MIGRATION.md` (new)
-  - `reports/publicization/history-scorecard.md` (new)
+  - `scripts/public_history_export.py`
+  - `scripts/public_history_scorecard.py`
+  - `docs/public/HISTORY-MIGRATION.md`
+  - `reports/publicization/history-scorecard.md`
 
 ## Overview
 Generate and compare two migration candidates for `yhl999/graphiti-openclaw`:
