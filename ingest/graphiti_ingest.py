@@ -12,6 +12,7 @@ Usage:
 import argparse
 import asyncio
 import json
+import logging
 import os
 import re
 import sys
@@ -34,16 +35,19 @@ except ImportError:
     print("Note: graphiti-core not installed. Running in dry-run mode.")
 
 
-def _sanitize_metadata_str(value: Any, field_name: str, max_len: int = 256) -> str:
+def _sanitize_metadata_str(value: Any, field_name: str = "unknown_field", max_len: int = 256) -> str:
     """Validate and sanitize a metadata string field.
 
     Returns a safe string (stripped, truncated, control-chars removed).
-    Falls back to 'unknown' for missing/empty values.
+    Falls back to 'unknown' for missing/empty values.  *field_name* is
+    included in debug-level logging when the fallback is used.
     """
     if value is None:
+        logging.debug("metadata field '%s' is None, falling back to 'unknown'", field_name)
         return "unknown"
     s = str(value).strip()
     if not s:
+        logging.debug("metadata field '%s' is empty, falling back to 'unknown'", field_name)
         return "unknown"
     # Remove control characters (keep printable + basic whitespace)
     s = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", s)

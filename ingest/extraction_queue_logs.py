@@ -102,10 +102,10 @@ def parse_queue_service_line(line: str) -> Optional[QueueServiceEvent]:
         # whitespace + "File " or "Traceback") and cap length.
         if raw_reason:
             raw_reason = re.sub(
-                r"(?:Traceback \(most recent call last\).*|(?:\s+File .+\n?)+)",
+                r"(?:Traceback \(most recent call last\)(?:\n\s+.+)*|(?:\s+File .+\n?)+)",
                 "[stack trace removed]",
                 raw_reason,
-                flags=re.DOTALL,
+                flags=re.MULTILINE,
             )
             raw_reason = raw_reason[:200]
         return QueueServiceEvent(

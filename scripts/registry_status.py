@@ -33,9 +33,16 @@ from registry import (
 )
 
 # Import from shared module (ingest/queue.py) rather than duplicating the DDL.
-# Use importlib to avoid name collision with stdlib ``queue`` module.
-import importlib as _importlib
-_queue_mod = _importlib.import_module("queue")
+# Use spec_from_file_location to load by explicit path, avoiding stdlib ``queue``
+# name collision (importlib.import_module would return the cached stdlib module if
+# anything else has already imported it).
+import importlib.util as _imputil
+_queue_spec = _imputil.spec_from_file_location(
+    "ingest_queue",
+    str(Path(__file__).resolve().parents[1] / "ingest" / "queue.py"),
+)
+_queue_mod = _imputil.module_from_spec(_queue_spec)
+_queue_spec.loader.exec_module(_queue_mod)
 QUEUE_SCHEMA_DDL = _queue_mod.QUEUE_SCHEMA_DDL
 
 
