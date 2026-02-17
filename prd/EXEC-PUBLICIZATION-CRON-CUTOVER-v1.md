@@ -32,7 +32,7 @@ Ship a deterministic, reversible cron/runtime cutover lane in the public framewo
 - [ ] No legacy `clawd-graphiti` path dependency remains in cutover scripts/docs.
 - [ ] Runtime validation works against canonical checkout linked by `tools/graphiti`.
 
-## Validation
+## Validation commands (run from repo root)
 ```bash
 set -euo pipefail
 
