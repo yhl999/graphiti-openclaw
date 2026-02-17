@@ -67,7 +67,7 @@ const resolveRegistryEntry = (registry: PackRegistry, packType: string) => {
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
-  return typeof value === 'object' && value !== null;
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 };
 
 const isNonEmptyString = (value: unknown): value is string => {
@@ -88,15 +88,26 @@ const isPathWithinRoot = (root: string, target: string): boolean => {
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 };
 
+const toCanonicalPath = (candidate: string, label: string): string => {
+  try {
+    return fs.realpathSync(candidate);
+  } catch (error) {
+    throw new Error(`Unable to resolve ${label}: ${(error as Error).message}`);
+  }
+};
+
 const resolvePackPath = (repoRoot: string, packPath: string): string => {
   const resolvedRoot = path.resolve(repoRoot);
   const resolvedPath = path.resolve(resolvedRoot, packPath);
-  if (!isPathWithinRoot(resolvedRoot, resolvedPath)) {
+  const canonicalRoot = toCanonicalPath(resolvedRoot, 'pack repo root');
+  const canonicalPath = toCanonicalPath(resolvedPath, `pack path ${resolvedPath}`);
+
+  if (!isPathWithinRoot(canonicalRoot, canonicalPath)) {
     throw new Error(
-      `Pack path ${resolvedPath} is outside repo root ${resolvedRoot}`,
+      `Pack path ${canonicalPath} is outside repo root ${canonicalRoot}`,
     );
   }
-  return resolvedPath;
+  return canonicalPath;
 };
 
 const loadPackContent = (repoRoot: string, packPath: string): string => {
@@ -203,6 +214,88 @@ const parseRouterOutput = (raw: string): PackPlan => {
   };
 };
 
+const containsNullByte = (value: string): boolean => {
+  return value.includes('\u0000');
+};
+
+const splitCommandString = (command: string): string[] => {
+  const trimmed = command.trim();
+  if (!trimmed) {
+    throw new Error('Pack router command is empty');
+  }
+
+  const parts: string[] = [];
+  let current = '';
+  let quote: 'single' | 'double' | null = null;
+
+  for (let i = 0; i < trimmed.length; i += 1) {
+    const char = trimmed[i];
+
+    if (char === '\\' && quote !== 'single') {
+      const next = trimmed[i + 1];
+      if (next && /[\s"'\\]/.test(next)) {
+        current += next;
+        i += 1;
+        continue;
+      }
+    }
+
+    if (char === "'" && quote !== 'double') {
+      quote = quote === 'single' ? null : 'single';
+      continue;
+    }
+
+    if (char === '"' && quote !== 'single') {
+      quote = quote === 'double' ? null : 'double';
+      continue;
+    }
+
+    if (!quote && /\s/.test(char)) {
+      if (current) {
+        parts.push(current);
+        current = '';
+      }
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (quote) {
+    throw new Error('Pack router command has unterminated quotes');
+  }
+
+  if (current) {
+    parts.push(current);
+  }
+
+  if (parts.length > 1 && fs.existsSync(trimmed)) {
+    return [trimmed];
+  }
+
+  if (parts.length === 0) {
+    throw new Error('Pack router command is empty');
+  }
+
+  return parts;
+};
+
+const normalizeRouterCommand = (command: string | string[]): string[] => {
+  const parts = Array.isArray(command)
+    ? command.map((part) => part.trim()).filter((part) => part.length > 0)
+    : splitCommandString(command);
+
+  if (parts.length === 0) {
+    throw new Error('Pack router command is empty');
+  }
+
+  if (parts.some((part) => containsNullByte(part))) {
+    throw new Error('Pack router command contains invalid null bytes');
+  }
+
+  return parts;
+};
+
 const runPackRouter = (
   command: string | string[],
   args: string[],
@@ -210,60 +303,15 @@ const runPackRouter = (
 ): Promise<string> => {
   return new Promise((resolve, reject) => {
     let commandParts: string[];
-    if (Array.isArray(command)) {
-      commandParts = command.filter((part) => part.trim().length > 0);
-    } else {
-      const trimmed = command.trim();
-      if (!trimmed) {
-        reject(new Error('Pack router command is empty'));
-        return;
-      }
-      if (trimmed.includes(' ') && !/["']/.test(trimmed) && fs.existsSync(trimmed)) {
-        commandParts = [trimmed];
-      } else {
-        commandParts = [];
-        let current = '';
-        let inSingle = false;
-        let inDouble = false;
-        for (let i = 0; i < trimmed.length; i += 1) {
-          const char = trimmed[i];
-          if (char === "'" && !inDouble) {
-            inSingle = !inSingle;
-            continue;
-          }
-          if (char === '"' && !inSingle) {
-            inDouble = !inDouble;
-            continue;
-          }
-          if (!inSingle && !inDouble && /\s/.test(char)) {
-            if (current) {
-              commandParts.push(current);
-              current = '';
-            }
-            continue;
-          }
-          if (char === '\\' && !inSingle) {
-            const next = trimmed[i + 1];
-            if (next && /[\s"'\\]/.test(next)) {
-              i += 1;
-              current += next;
-              continue;
-            }
-          }
-          current += char;
-        }
-        if (inSingle || inDouble) {
-          reject(new Error('Pack router command has unterminated quotes'));
-          return;
-        }
-        if (current) {
-          commandParts.push(current);
-        }
-      }
+    try {
+      commandParts = normalizeRouterCommand(command);
+    } catch (error) {
+      reject(error);
+      return;
     }
 
-    if (commandParts.length === 0) {
-      reject(new Error('Pack router command is empty'));
+    if (args.some((arg) => containsNullByte(arg))) {
+      reject(new Error('Pack router args contain invalid null bytes'));
       return;
     }
 
@@ -290,7 +338,8 @@ const runPackRouter = (
     child.on('close', (code) => {
       clearTimeout(timeout);
       if (code !== 0) {
-        reject(new Error(`Pack router failed: ${stderr.trim()}`));
+        const detail = stderr.trim() || `exit code ${code}`;
+        reject(new Error(`Pack router failed: ${detail}`));
         return;
       }
       resolve(stdout.trim());

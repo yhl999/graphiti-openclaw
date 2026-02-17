@@ -71,16 +71,30 @@ const isPathWithinRoot = (root: string, target: string): boolean => {
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 };
 
+const toCanonicalPath = (candidate: string): string => {
+  return fs.realpathSync(candidate);
+};
+
+const toCanonicalRoot = (candidate: string): string => {
+  try {
+    return toCanonicalPath(candidate);
+  } catch {
+    return path.resolve(candidate);
+  }
+};
+
 const resolveSafePath = (filePath: string, allowedRoots?: string[]): string => {
   const absolute = path.resolve(filePath);
-  const roots = resolveAllowedRoots(allowedRoots);
-  const allowed = roots.some((root) => isPathWithinRoot(root, absolute));
+  const canonicalPath = toCanonicalPath(absolute);
+  const roots = resolveAllowedRoots(allowedRoots).map(toCanonicalRoot);
+  const allowed = roots.some((root) => isPathWithinRoot(root, canonicalPath));
+
   if (!allowed) {
     throw new Error(
-      `Config path ${absolute} is outside allowed roots: ${roots.join(', ')}`,
+      `Config path ${canonicalPath} is outside allowed roots: ${roots.join(', ')}`,
     );
   }
-  return absolute;
+  return canonicalPath;
 };
 
 const readConfigFile = <T>(filePath: string, allowedRoots?: string[]): T => {

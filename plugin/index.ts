@@ -51,7 +51,9 @@ export const createGraphitiPlugin = (options?: GraphitiPluginOptions): OpenClawP
     try {
       return loader();
     } catch (error) {
-      logger(`Config load failed for ${label}: ${(error as Error).message}`);
+      const message = `Config load failed for ${label}: ${(error as Error).message}`;
+      console.warn(`[graphiti-openclaw] ${message}`);
+      logger(message);
       return null;
     }
   };

@@ -63,6 +63,14 @@ const registry: PackRegistry = {
   ],
 };
 
+const makeTempDir = (t: { after: (fn: () => void) => void }, prefix: string): string => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  t.after(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  return dir;
+};
+
 test('P1: no keyword match yields no pack', () => {
   const { decision } = detectIntent(rules, { prompt: 'hello there', defaultMinConfidence: 0.3 });
   assert.equal(decision.matched, false);
@@ -211,8 +219,8 @@ test('pack context escapes XML attributes', async () => {
   );
 });
 
-test('pack router command supports quoted paths with spaces', async () => {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'graphiti pack router '));
+test('pack router command supports quoted paths with spaces', async (t) => {
+  const tempDir = makeTempDir(t, 'graphiti pack router ');
   const packFile = path.join(tempDir, 'pack.yaml');
   fs.writeFileSync(packFile, 'router pack content', 'utf8');
 
@@ -262,8 +270,8 @@ test('pack router command supports quoted paths with spaces', async () => {
   assert.ok(result.context.includes('router pack content'));
 });
 
-test('invalid pack router output falls back to null', async () => {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'graphiti pack router invalid '));
+test('invalid pack router output falls back to null', async (t) => {
+  const tempDir = makeTempDir(t, 'graphiti pack router invalid ');
   const scriptPath = path.join(tempDir, 'pack router.js');
   fs.writeFileSync(scriptPath, 'process.stdout.write("{\\"packs\\": []}");', 'utf8');
 
@@ -295,14 +303,87 @@ test('invalid pack router output falls back to null', async () => {
   assert.equal(result, null);
 });
 
-test('config path allowlist rejects outside roots', () => {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'graphiti-config-'));
+test('pack router plan cannot escape repo root through symlink', async (t) => {
+  const tempDir = makeTempDir(t, 'graphiti-pack-router-symlink-');
+  const repoRoot = path.join(tempDir, 'repo');
+  fs.mkdirSync(repoRoot, { recursive: true });
+
+  const externalDir = makeTempDir(t, 'graphiti-pack-router-external-');
+  const externalPackPath = path.join(externalDir, 'outside-pack.yaml');
+  fs.writeFileSync(externalPackPath, 'outside content', 'utf8');
+
+  const symlinkedPackPath = path.join(repoRoot, 'linked-pack.yaml');
+  fs.symlinkSync(externalPackPath, symlinkedPackPath);
+
+  const plan = {
+    consumer: 'main_session_example_summary',
+    workflow_id: 'example_summary',
+    step_id: 'draft',
+    scope: 'public',
+    task: '',
+    injection_text: '',
+    packs: [{ pack_id: 'router_pack', query: 'linked-pack.yaml' }],
+  };
+
+  const scriptPath = path.join(tempDir, 'pack-router.js');
+  fs.writeFileSync(
+    scriptPath,
+    `process.stdout.write(${JSON.stringify(JSON.stringify(plan))});`,
+    'utf8',
+  );
+
+  const injector = createPackInjector({
+    intentRules: {
+      schema_version: 1,
+      rules: [
+        {
+          id: 'summary',
+          consumerProfile: 'main_session_example_summary',
+          workflowId: 'example_summary',
+          stepId: 'draft',
+          keywords: ['summary'],
+        },
+      ],
+    },
+    config: {
+      packRouterCommand: ['node', scriptPath],
+      packRouterRepoRoot: repoRoot,
+    },
+  });
+
+  const result = await injector({
+    prompt: 'summary',
+    ctx: {},
+    graphitiResults: null,
+  });
+
+  assert.equal(result, null);
+});
+
+test('config path allowlist rejects outside roots', (t) => {
+  const tempDir = makeTempDir(t, 'graphiti-config-');
   const rulesPath = path.join(tempDir, 'intent_rules.json');
   fs.writeFileSync(rulesPath, JSON.stringify({ schema_version: 1, rules: [] }), 'utf8');
 
-  const allowedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'graphiti-allowed-'));
+  const allowedRoot = makeTempDir(t, 'graphiti-allowed-');
   assert.throws(
     () => loadIntentRules(rulesPath, [allowedRoot]),
+    /outside allowed roots/,
+  );
+});
+
+test('config path allowlist rejects symlink escapes', (t) => {
+  const allowedRoot = makeTempDir(t, 'graphiti-allowed-root-');
+  const externalRoot = makeTempDir(t, 'graphiti-external-root-');
+
+  const externalFile = path.join(externalRoot, 'intent_rules.json');
+  fs.writeFileSync(externalFile, JSON.stringify({ schema_version: 1, rules: [] }), 'utf8');
+
+  const linkedPath = path.join(allowedRoot, 'intent_rules_link.json');
+  fs.symlinkSync(externalFile, linkedPath);
+
+  assert.throws(
+    () => loadIntentRules(linkedPath, [allowedRoot]),
     /outside allowed roots/,
   );
 });
