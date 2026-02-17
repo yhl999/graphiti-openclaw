@@ -60,13 +60,6 @@ export const normalizeConfig = (config?: Partial<PluginConfig>): PluginConfig =>
   };
 };
 
-const resolveAllowedRoots = (allowedRoots?: string[]): string[] => {
-  if (!allowedRoots || allowedRoots.length === 0) {
-    return [process.cwd()];
-  }
-  return allowedRoots.map((root) => path.resolve(root));
-};
-
 const toCanonicalRoot = (candidate: string): string => {
   const absolute = path.resolve(candidate);
   return toCanonicalPath(absolute, `config root ${absolute}`);
@@ -75,7 +68,9 @@ const toCanonicalRoot = (candidate: string): string => {
 const resolveSafePath = (filePath: string, allowedRoots?: string[]): string => {
   const absolute = path.resolve(filePath);
   const canonicalPath = toCanonicalPath(absolute, `config path ${absolute}`);
-  const roots = resolveAllowedRoots(allowedRoots).map(toCanonicalRoot);
+  const roots = (allowedRoots && allowedRoots.length > 0 ? allowedRoots : [process.cwd()]).map(
+    toCanonicalRoot,
+  );
   const allowed = roots.some((root) => isPathWithinRoot(root, canonicalPath));
 
   if (!allowed) {

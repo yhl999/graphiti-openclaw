@@ -104,6 +104,9 @@ export const createGraphitiPlugin = (options?: GraphitiPluginOptions): OpenClawP
   };
 };
 
+// OpenClaw plugin host runs in a single-threaded event loop per process;
+// a per-process lazy singleton avoids import-time side effects while keeping
+// initialization predictable.
 let defaultPlugin: OpenClawPlugin | null = null;
 const getDefaultPlugin = (): OpenClawPlugin => {
   if (!defaultPlugin) {

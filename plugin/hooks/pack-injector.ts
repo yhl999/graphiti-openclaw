@@ -132,6 +132,8 @@ const formatPackContext = (
     lines.push(`## Active Workflow: ${escapeXmlText(primary.packId)}`);
   }
   lines.push('');
+  // Pack files are trusted operator-authored markdown/yaml content and are intentionally
+  // injected verbatim (not XML-escaped) so instructions remain machine-readable.
   lines.push(primary.content);
 
   for (const pack of additional) {
@@ -211,6 +213,8 @@ const containsNullByte = (value: string): boolean => {
   return value.includes('\u0000');
 };
 
+const MAX_ROUTER_OUTPUT_BYTES = 1_000_000;
+
 const splitCommandString = (command: string): string[] => {
   const trimmed = command.trim();
   if (!trimmed) {
@@ -224,6 +228,8 @@ const splitCommandString = (command: string): string[] => {
   for (let i = 0; i < trimmed.length; i += 1) {
     const char = trimmed[i];
 
+    // Support shell-like escapes outside single quotes and inside double quotes
+    // (spaces, quotes, and backslashes) for quoted path compatibility.
     if (char === '\\' && quote !== 'single') {
       const next = trimmed[i + 1];
       if (next && /[\s"'\\]/.test(next)) {
@@ -327,16 +333,30 @@ const runPackRouter = (
     });
     let stdout = '';
     let stderr = '';
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
 
     const timeout = setTimeout(() => {
       child.kill('SIGKILL');
       rejectOnce(new Error('Pack router timed out'));
     }, timeoutMs);
 
-    child.stdout.on('data', (chunk) => {
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdoutBytes += chunk.length;
+      if (stdoutBytes > MAX_ROUTER_OUTPUT_BYTES) {
+        child.kill('SIGKILL');
+        rejectOnce(new Error('Pack router exceeded stdout size limit'));
+        return;
+      }
       stdout += chunk.toString();
     });
-    child.stderr.on('data', (chunk) => {
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderrBytes += chunk.length;
+      if (stderrBytes > MAX_ROUTER_OUTPUT_BYTES) {
+        child.kill('SIGKILL');
+        rejectOnce(new Error('Pack router exceeded stderr size limit'));
+        return;
+      }
       stderr += chunk.toString();
     });
     child.on('error', (error) => {
