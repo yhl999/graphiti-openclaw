@@ -78,8 +78,10 @@ const toCanonicalPath = (candidate: string): string => {
 const toCanonicalRoot = (candidate: string): string => {
   try {
     return toCanonicalPath(candidate);
-  } catch {
-    return path.resolve(candidate);
+  } catch (error) {
+    throw new Error(
+      `Unable to resolve config root ${path.resolve(candidate)}: ${(error as Error).message}`,
+    );
   }
 };
 

@@ -83,6 +83,10 @@ const escapeXmlAttr = (value: string): string => {
     .replace(/'/g, '&apos;');
 };
 
+const escapeXmlText = (value: string): string => {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+};
+
 const isPathWithinRoot = (root: string, target: string): boolean => {
   const relative = path.relative(root, target);
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
@@ -129,23 +133,24 @@ const formatPackContext = (
     `<pack-context intent="${safeIntentId}" primary-pack="${safePackId}" scope="${safeScope}">`,
   );
   if (plan) {
-    lines.push(`## Active Workflow: ${plan.workflow_id}`);
+    lines.push(`## Active Workflow: ${escapeXmlText(plan.workflow_id)}`);
     if (plan.task) {
-      lines.push(`Task: ${plan.task}`);
+      lines.push(`Task: ${escapeXmlText(plan.task)}`);
     }
     if (plan.injection_text) {
-      lines.push(plan.injection_text);
+      lines.push(escapeXmlText(plan.injection_text));
     }
   } else {
-    lines.push(`## Active Workflow: ${primary.packId}`);
+    lines.push(`## Active Workflow: ${escapeXmlText(primary.packId)}`);
   }
   lines.push('');
   lines.push(primary.content.trim());
 
   for (const pack of additional) {
     lines.push('');
-    const modeLabel = pack.mode ? ` (${pack.mode})` : '';
-    lines.push(`### Composition: ${pack.packId}${modeLabel}`);
+    const safePackId = escapeXmlText(pack.packId);
+    const modeLabel = pack.mode ? ` (${escapeXmlText(pack.mode)})` : '';
+    lines.push(`### Composition: ${safePackId}${modeLabel}`);
     lines.push(pack.content.trim());
   }
 
@@ -269,10 +274,6 @@ const splitCommandString = (command: string): string[] => {
     parts.push(current);
   }
 
-  if (parts.length > 1 && fs.existsSync(trimmed)) {
-    return [trimmed];
-  }
-
   if (parts.length === 0) {
     throw new Error('Pack router command is empty');
   }
@@ -302,16 +303,32 @@ const runPackRouter = (
   timeoutMs: number,
 ): Promise<string> => {
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const resolveOnce = (value: string) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolve(value);
+    };
+    const rejectOnce = (error: Error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      reject(error);
+    };
+
     let commandParts: string[];
     try {
       commandParts = normalizeRouterCommand(command);
     } catch (error) {
-      reject(error);
+      rejectOnce(error as Error);
       return;
     }
 
     if (args.some((arg) => containsNullByte(arg))) {
-      reject(new Error('Pack router args contain invalid null bytes'));
+      rejectOnce(new Error('Pack router args contain invalid null bytes'));
       return;
     }
 
@@ -322,7 +339,7 @@ const runPackRouter = (
 
     const timeout = setTimeout(() => {
       child.kill('SIGKILL');
-      reject(new Error('Pack router timed out'));
+      rejectOnce(new Error('Pack router timed out'));
     }, timeoutMs);
 
     child.stdout.on('data', (chunk) => {
@@ -333,16 +350,16 @@ const runPackRouter = (
     });
     child.on('error', (error) => {
       clearTimeout(timeout);
-      reject(error);
+      rejectOnce(error as Error);
     });
     child.on('close', (code) => {
       clearTimeout(timeout);
       if (code !== 0) {
         const detail = stderr.trim() || `exit code ${code}`;
-        reject(new Error(`Pack router failed: ${detail}`));
+        rejectOnce(new Error(`Pack router failed: ${detail}`));
         return;
       }
-      resolve(stdout.trim());
+      resolveOnce(stdout.trim());
     });
   });
 };

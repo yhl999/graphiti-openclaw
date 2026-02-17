@@ -32,9 +32,9 @@
   - `plugin/tests/intent/` (NEW — intent detection tests)
   - `plugin/tests/composition/` (NEW — composition tests)
   - `plugin/tests/correctness/` (NEW — correctness property tests)
-  - `config/example_intent_rules.yaml` (NEW — example rules, no private data)
-  - `config/example_pack_composition.yaml` (NEW — example composition rules)
-  - `config/example_pack_registry.yaml` (NEW — example pack registry)
+  - `config/example_intent_rules.json` (NEW — example rules, no private data)
+  - `config/example_pack_composition.json` (NEW — example composition rules)
+  - `config/example_pack_registry.json` (NEW — example pack registry)
 - Owned Paths (PRIVATE repo — `graphiti-openclaw-private`):
   - `config/runtime_pack_registry.yaml` (add new packs)
   - `config/runtime_consumer_profiles.yaml` (add new profiles)
@@ -76,7 +76,7 @@ The plugin architecture follows the same public/private overlay pattern as the r
 | Intent detection engine | `plugin/intent/detector.ts`, `plugin/intent/types.ts` | Keyword matching + entity-type boost (configurable rules) |
 | Composition engine | `plugin/composition/engine.ts`, `plugin/composition/types.ts` | Load composition rules, resolve cross-pack dependencies |
 | Graphiti client | `plugin/client.ts` | HTTP client for Graphiti API |
-| Example configs | `config/example_*.yaml` | Example intent rules, composition rules, pack registry (synthetic data, no private info) |
+| Example configs | `config/example_*.json` | Example intent rules, composition rules, pack registry (synthetic data, no private info) |
 | Tests + eval integration | `plugin/tests/` | Unit tests, correctness property tests, shadow-compare integration hooks |
 
 ### PRIVATE (`graphiti-openclaw-private` repo) — Our Specific Wiring
@@ -580,7 +580,7 @@ Coexist with `memory_search`/`memory_get` (QMD).
 - [ ] Correctness property tests pass: P1 (safe default), P2 (determinism), P3 (bounded ambiguity), P4 (monotonic boost), P5 (scope isolation), P6 (fallback safety)
 - [ ] Keyword coverage audit test passes (no >50% overlap between rules)
 - [ ] Tests pass (unit + intent + composition + scope + shadow compare + correctness)
-- [ ] Example configs in `config/example_*.yaml` contain only synthetic data — boundary audit passes
+- [ ] Example configs in `config/example_*.json` contain only synthetic data — boundary audit passes
 - [ ] `public_repo_boundary_audit.py --strict` passes with all plugin files
 - [ ] README documents: setup, config schema, pack authoring, intent rule authoring, composition rule authoring, QMD inversion phases, correctness properties
 

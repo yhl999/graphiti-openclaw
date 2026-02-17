@@ -387,3 +387,102 @@ test('config path allowlist rejects symlink escapes', (t) => {
     /outside allowed roots/,
   );
 });
+
+
+test('pack context escapes XML text for workflow metadata', async (t) => {
+  const tempDir = makeTempDir(t, 'graphiti-pack-router-xml-text-');
+  const packFile = path.join(tempDir, 'pack.yaml');
+  fs.writeFileSync(packFile, 'router pack content', 'utf8');
+
+  const plan = {
+    consumer: 'main_session_example_summary',
+    workflow_id: 'wf <alpha> & beta',
+    step_id: 'draft',
+    scope: 'public',
+    task: 'task <x> & y',
+    injection_text: 'inject <tag> & z',
+    packs: [{ pack_id: 'router_pack', query: 'pack.yaml' }],
+  };
+
+  const scriptPath = path.join(tempDir, 'pack-router.js');
+  fs.writeFileSync(
+    scriptPath,
+    `process.stdout.write(${JSON.stringify(JSON.stringify(plan))});`,
+    'utf8',
+  );
+
+  const injector = createPackInjector({
+    intentRules: {
+      schema_version: 1,
+      rules: [
+        {
+          id: 'summary',
+          consumerProfile: 'main_session_example_summary',
+          workflowId: 'example_summary',
+          stepId: 'draft',
+          keywords: ['summary'],
+        },
+      ],
+    },
+    config: {
+      packRouterCommand: ['node', scriptPath],
+      packRouterRepoRoot: tempDir,
+    },
+  });
+
+  const result = await injector({
+    prompt: 'summary',
+    ctx: {},
+    graphitiResults: null,
+  });
+
+  assert.ok(result);
+  assert.ok(result.context.includes('## Active Workflow: wf &lt;alpha&gt; &amp; beta'));
+  assert.ok(result.context.includes('Task: task &lt;x&gt; &amp; y'));
+  assert.ok(result.context.includes('inject &lt;tag&gt; &amp; z'));
+});
+
+test('pack router command path with spaces must be quoted or array form', async (t) => {
+  const tempDir = makeTempDir(t, 'graphiti-router-unquoted-path-');
+  const scriptPath = path.join(tempDir, 'pack router.js');
+  fs.writeFileSync(scriptPath, 'process.stdout.write("{}")', 'utf8');
+
+  const injector = createPackInjector({
+    intentRules: {
+      schema_version: 1,
+      rules: [
+        {
+          id: 'summary',
+          consumerProfile: 'main_session_example_summary',
+          workflowId: 'example_summary',
+          stepId: 'draft',
+          keywords: ['summary'],
+        },
+      ],
+    },
+    config: {
+      packRouterCommand: scriptPath,
+      packRouterRepoRoot: tempDir,
+    },
+  });
+
+  const result = await injector({
+    prompt: 'summary',
+    ctx: {},
+    graphitiResults: null,
+  });
+
+  assert.equal(result, null);
+});
+
+test('config path allowlist rejects non-existent roots', (t) => {
+  const tempDir = makeTempDir(t, 'graphiti-config-root-missing-');
+  const rulesPath = path.join(tempDir, 'intent_rules.json');
+  fs.writeFileSync(rulesPath, JSON.stringify({ schema_version: 1, rules: [] }), 'utf8');
+
+  const missingRoot = path.join(tempDir, 'does-not-exist');
+  assert.throws(
+    () => loadIntentRules(rulesPath, [missingRoot]),
+    /Unable to resolve config root/,
+  );
+});

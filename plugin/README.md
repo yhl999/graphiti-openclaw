@@ -26,9 +26,9 @@ Configuration is passed as JSON through `GRAPHITI_PLUGIN_CONFIG` or OpenClaw's p
 ```json
 {
   "graphitiBaseUrl": "http://localhost:8000",
-  "intentRulesPath": "config/example_intent_rules.yaml",
-  "compositionRulesPath": "config/example_pack_composition.yaml",
-  "packRegistryPath": "config/example_pack_registry.yaml",
+  "intentRulesPath": "config/example_intent_rules.json",
+  "compositionRulesPath": "config/example_pack_composition.json",
+  "packRegistryPath": "config/example_pack_registry.json",
   "packRouterCommand": "python3 scripts/runtime_pack_router.py",
   "packRouterRepoRoot": ".",
   "configPathRoots": ["."],
@@ -37,8 +37,7 @@ Configuration is passed as JSON through `GRAPHITI_PLUGIN_CONFIG` or OpenClaw's p
 ```
 
 Notes:
-- The scaffold loader expects JSON content. You can keep `.yaml` extensions, but the file must still be JSON.
-- Consider renaming config files to `.json` to avoid confusion.
+- The scaffold loader expects JSON content.
 - `packRouterCommand` is optional. If omitted, the pack registry is used directly.
 - For command paths with spaces, wrap paths in quotes or use an array form:
   - `"packRouterCommand": "python3 \"scripts/pack router.py\""`
@@ -55,7 +54,7 @@ Intent rules map prompts to workflow packs using deterministic keyword routing p
 - Ties resolve to **no pack**.
 - `scope` enforces group-chat isolation (`private` packs never injected in group chat).
 
-Example: `config/example_intent_rules.yaml`.
+Example: `config/example_intent_rules.json`.
 
 ## Composition Rules
 
@@ -65,13 +64,13 @@ Composition rules declare secondary packs to inject alongside the primary intent
 - `inject_additional` lists extra packs to load.
 - `required: false` keeps injection optional if the pack is missing.
 
-Example: `config/example_pack_composition.yaml`.
+Example: `config/example_pack_composition.json`.
 
 ## Pack Registry
 
 The pack registry maps pack types to pack files and scopes.
 
-Example: `config/example_pack_registry.yaml`.
+Example: `config/example_pack_registry.json`.
 
 ## Hooks
 

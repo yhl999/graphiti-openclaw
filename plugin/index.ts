@@ -104,5 +104,21 @@ export const createGraphitiPlugin = (options?: GraphitiPluginOptions): OpenClawP
   };
 };
 
-const plugin = createGraphitiPlugin();
+let defaultPlugin: OpenClawPlugin | null = null;
+const getDefaultPlugin = (): OpenClawPlugin => {
+  if (!defaultPlugin) {
+    defaultPlugin = createGraphitiPlugin();
+  }
+  return defaultPlugin;
+};
+
+const plugin: OpenClawPlugin = {
+  get name() {
+    return getDefaultPlugin().name;
+  },
+  get hooks() {
+    return getDefaultPlugin().hooks;
+  },
+};
+
 export default plugin;
