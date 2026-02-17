@@ -388,7 +388,6 @@ test('config path allowlist rejects symlink escapes', (t) => {
   );
 });
 
-
 test('pack context escapes XML text for workflow metadata', async (t) => {
   const tempDir = makeTempDir(t, 'graphiti-pack-router-xml-text-');
   const packFile = path.join(tempDir, 'pack.yaml');

@@ -10,6 +10,7 @@ import type { GraphitiSearchResults } from '../client.ts';
 import { detectIntent } from '../intent/detector.ts';
 import type { IntentRuleSet, IntentDecision } from '../intent/types.ts';
 import type { PluginConfig } from '../config.ts';
+import { isPathWithinRoot, toCanonicalPath } from '../path-utils.ts';
 
 export interface PackContextResult {
   context: string;
@@ -87,19 +88,6 @@ const escapeXmlText = (value: string): string => {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 };
 
-const isPathWithinRoot = (root: string, target: string): boolean => {
-  const relative = path.relative(root, target);
-  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
-};
-
-const toCanonicalPath = (candidate: string, label: string): string => {
-  try {
-    return fs.realpathSync(candidate);
-  } catch (error) {
-    throw new Error(`Unable to resolve ${label}: ${(error as Error).message}`);
-  }
-};
-
 const resolvePackPath = (repoRoot: string, packPath: string): string => {
   const resolvedRoot = path.resolve(repoRoot);
   const resolvedPath = path.resolve(resolvedRoot, packPath);
@@ -116,7 +104,7 @@ const resolvePackPath = (repoRoot: string, packPath: string): string => {
 
 const loadPackContent = (repoRoot: string, packPath: string): string => {
   const resolved = resolvePackPath(repoRoot, packPath);
-  return fs.readFileSync(resolved, 'utf8');
+  return fs.readFileSync(resolved, 'utf8').trim();
 };
 
 const formatPackContext = (
@@ -144,14 +132,14 @@ const formatPackContext = (
     lines.push(`## Active Workflow: ${escapeXmlText(primary.packId)}`);
   }
   lines.push('');
-  lines.push(primary.content.trim());
+  lines.push(primary.content);
 
   for (const pack of additional) {
     lines.push('');
     const safePackId = escapeXmlText(pack.packId);
     const modeLabel = pack.mode ? ` (${escapeXmlText(pack.mode)})` : '';
     lines.push(`### Composition: ${safePackId}${modeLabel}`);
-    lines.push(pack.content.trim());
+    lines.push(pack.content);
   }
 
   lines.push('</pack-context>');
@@ -333,7 +321,10 @@ const runPackRouter = (
     }
 
     const [cmd, ...baseArgs] = commandParts;
-    const child = spawn(cmd, [...baseArgs, ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(cmd, [...baseArgs, ...args], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: false,
+    });
     let stdout = '';
     let stderr = '';
 

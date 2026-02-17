@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import type { CompositionRuleSet } from './composition/types.ts';
 import type { IntentRuleSet } from './intent/types.ts';
+import { isPathWithinRoot, toCanonicalPath } from './path-utils.ts';
 
 export interface PackRegistryEntry {
   pack_id: string;
@@ -66,28 +67,14 @@ const resolveAllowedRoots = (allowedRoots?: string[]): string[] => {
   return allowedRoots.map((root) => path.resolve(root));
 };
 
-const isPathWithinRoot = (root: string, target: string): boolean => {
-  const relative = path.relative(root, target);
-  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
-};
-
-const toCanonicalPath = (candidate: string): string => {
-  return fs.realpathSync(candidate);
-};
-
 const toCanonicalRoot = (candidate: string): string => {
-  try {
-    return toCanonicalPath(candidate);
-  } catch (error) {
-    throw new Error(
-      `Unable to resolve config root ${path.resolve(candidate)}: ${(error as Error).message}`,
-    );
-  }
+  const absolute = path.resolve(candidate);
+  return toCanonicalPath(absolute, `config root ${absolute}`);
 };
 
 const resolveSafePath = (filePath: string, allowedRoots?: string[]): string => {
   const absolute = path.resolve(filePath);
-  const canonicalPath = toCanonicalPath(absolute);
+  const canonicalPath = toCanonicalPath(absolute, `config path ${absolute}`);
   const roots = resolveAllowedRoots(allowedRoots).map(toCanonicalRoot);
   const allowed = roots.some((root) => isPathWithinRoot(root, canonicalPath));
 
