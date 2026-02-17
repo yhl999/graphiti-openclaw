@@ -9,6 +9,7 @@
 - Owned Paths:
   - `prd/EXEC-PUBLICIZATION-CRON-CUTOVER-v1.md`
   - `.gitignore`
+  - `ingest/queue.py`
   - `scripts/run_incremental_ingest.py`
   - `scripts/ingest_trigger_done.py`
   - `scripts/mcp_ingest_sessions.py`

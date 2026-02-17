@@ -25,6 +25,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+# Shared queue schema + helpers (single source of truth).
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from ingest.queue import connect as _connect  # noqa: E402
+from ingest.queue import ensure_schema as _ensure_queue_schema  # noqa: E402
+from ingest.queue import validate_identifier  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DB_PATH = REPO_ROOT / "state" / "ingest_registry.db"
@@ -43,46 +48,6 @@ BACKOFF_CAP_S = 30 * 60
 BACKOFF_JITTER_FRAC = 0.20
 
 
-QUEUE_SCHEMA_DDL = """
-CREATE TABLE IF NOT EXISTS ingest_jobs (
-  job_id TEXT PRIMARY KEY,
-  dedupe_key TEXT,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  source TEXT NOT NULL,
-  job_type TEXT NOT NULL,
-  group_id TEXT NOT NULL,
-  lane TEXT NOT NULL,
-  session_key TEXT,
-  requested_ts TEXT,
-  status TEXT NOT NULL,
-  run_after TEXT NOT NULL,
-  attempts INTEGER NOT NULL DEFAULT 0,
-  max_attempts INTEGER NOT NULL DEFAULT 6,
-  payload_json TEXT NOT NULL DEFAULT '{}',
-  last_error TEXT,
-  last_error_at TEXT,
-  last_started_at TEXT,
-  last_finished_at TEXT,
-  last_exit_code INTEGER,
-  last_duration_s REAL
-);
-
-CREATE INDEX IF NOT EXISTS idx_ingest_jobs_created_at
-  ON ingest_jobs(created_at);
-CREATE INDEX IF NOT EXISTS idx_ingest_jobs_job_type
-  ON ingest_jobs(job_type);
-CREATE INDEX IF NOT EXISTS idx_ingest_jobs_status_run_after
-  ON ingest_jobs(status, run_after);
-CREATE INDEX IF NOT EXISTS idx_ingest_jobs_dedupe_key
-  ON ingest_jobs(dedupe_key);
-
-CREATE UNIQUE INDEX IF NOT EXISTS ux_ingest_jobs_active_dedupe
-  ON ingest_jobs(dedupe_key)
-  WHERE status IN ('queued', 'running');
-"""
-
-
 def _utc_now_dt() -> datetime:
     return datetime.now(timezone.utc).replace(microsecond=0)
 
@@ -99,17 +64,6 @@ def _parse_iso(s: str) -> Optional[datetime]:
         return dt.astimezone(timezone.utc).replace(microsecond=0)
     except Exception:
         return None
-
-
-def _connect(db_path: Path) -> sqlite3.Connection:
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(db_path), timeout=30)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-def _ensure_queue_schema(conn: sqlite3.Connection) -> None:
-    conn.executescript(QUEUE_SCHEMA_DDL)
 
 
 def _sessions_evidence_path(evidence_out: Path, *, agent_id: str = DEFAULT_SESSIONS_AGENT_ID) -> Path:
@@ -499,6 +453,7 @@ def _build_command(
         group_id = str(job.get("group_id") or payload.get("group_id") or "")
         if not group_id:
             raise ValueError("missing_group_id")
+        validate_identifier(group_id, "group_id")
 
         overlap = payload.get("overlap", DEFAULT_SESSIONS_OVERLAP_CHUNKS)
         try:
