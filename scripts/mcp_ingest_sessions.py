@@ -30,16 +30,13 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 import time
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Dict, Optional
-
 import urllib.error
 import urllib.request
-
-# shared sanitizer + registry (stdlib only)
-import sys
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ingest"))
 from common import sanitize_for_graphiti
@@ -110,19 +107,23 @@ class MCPClient:
 
     def __init__(self, url: str = MCP_URL_DEFAULT):
         self.url = url
-        self.session_id: Optional[str] = None
+        self.session_id: str | None = None
         self.initialized = False
 
-    def _decode(self, content_type: str, body: str, status: int) -> Dict[str, Any]:
+    def _decode(self, content_type: str, body: str, status: int) -> dict[str, Any]:
         ct = (content_type or "").lower()
 
         if ct.startswith("text/event-stream"):
-            data_lines = [l[len("data:") :].strip() for l in body.splitlines() if l.startswith("data:")]
+            data_lines = [
+                line[len("data:") :].strip()
+                for line in body.splitlines()
+                if line.startswith("data:")
+            ]
             return json.loads(data_lines[-1]) if data_lines else {}
 
         return json.loads(body) if body.strip() else {}
 
-    def _http_post_json(self, payload: Dict[str, Any], extra_headers: Optional[Dict[str, str]] = None):
+    def _http_post_json(self, payload: dict[str, Any], extra_headers: dict[str, str] | None = None):
         data = json.dumps(payload).encode("utf-8")
         headers = {
             "Accept": "application/json, text/event-stream",
@@ -145,7 +146,7 @@ class MCPClient:
             body = e.read().decode("utf-8", errors="replace")
             return status, resp_headers, body
 
-    def _post(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def _post(self, payload: dict[str, Any]) -> dict[str, Any]:
         extra = {}
         if self.session_id:
             extra["mcp-session-id"] = self.session_id
@@ -187,7 +188,7 @@ class MCPClient:
 
         self.initialized = True
 
-    def call_tool(self, name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         self.initialize()
         return self._post(
             {
