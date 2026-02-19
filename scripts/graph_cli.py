@@ -13,7 +13,6 @@ import subprocess
 SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9_]+$")
 
 # Neo4j defaults
-NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD", "")
 NEO4J_USER = os.environ.get("NEO4J_USER", "neo4j")
 NEO4J_DATABASE = os.environ.get("NEO4J_DATABASE", "neo4j")
 NEO4J_HOST = os.environ.get("NEO4J_HOST", "localhost")
@@ -23,6 +22,12 @@ CYPHER_SHELL = os.environ.get("CYPHER_SHELL", "cypher-shell")
 # FalkorDB defaults
 REDIS_CLI = os.environ.get("REDIS_CLI", "/opt/homebrew/opt/redis/bin/redis-cli")
 REDIS_PORT = os.environ.get("REDIS_PORT", "6379")
+
+
+def _require_neo4j_password() -> None:
+    """Raise ValueError if NEO4J_PASSWORD env var is not set."""
+    if not os.environ.get("NEO4J_PASSWORD"):
+        raise ValueError("NEO4J_PASSWORD environment variable must be set for neo4j backend")
 
 
 def run_cypher(backend: str, graph_name: str, query: str, *, timeout: int = 30) -> str:
@@ -35,16 +40,17 @@ def run_cypher(backend: str, graph_name: str, query: str, *, timeout: int = 30) 
         raise ValueError(f"unsafe graph name: {graph_name!r}")
 
     if backend == "neo4j":
+        _require_neo4j_password()
         cmd = [
             CYPHER_SHELL,
             "-u", NEO4J_USER,
-            "-p", NEO4J_PASSWORD,
             "-d", NEO4J_DATABASE,
             "-a", f"bolt://{NEO4J_HOST}:{NEO4J_PORT}",
             "--format", "plain",
             query,
         ]
-        return subprocess.check_output(cmd, text=True, timeout=timeout)
+        env = {**os.environ, "NEO4J_PASSWORD": os.environ["NEO4J_PASSWORD"]}
+        return subprocess.check_output(cmd, text=True, timeout=timeout, env=env)
 
     if backend == "falkordb":
         cmd = [REDIS_CLI, "-p", REDIS_PORT, "GRAPH.QUERY", graph_name, query]
@@ -57,16 +63,17 @@ def check_health(backend: str, *, timeout: int = 2) -> bool:
     """Return True if the database responds to a basic health probe."""
     try:
         if backend == "neo4j":
+            _require_neo4j_password()
             cmd = [
                 CYPHER_SHELL,
                 "-u", NEO4J_USER,
-                "-p", NEO4J_PASSWORD,
                 "-d", NEO4J_DATABASE,
                 "-a", f"bolt://{NEO4J_HOST}:{NEO4J_PORT}",
                 "--format", "plain",
                 "RETURN 1;",
             ]
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            env = {**os.environ, "NEO4J_PASSWORD": os.environ["NEO4J_PASSWORD"]}
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)
             return r.returncode == 0
 
         if backend == "falkordb":
@@ -86,22 +93,21 @@ def get_db_size(backend: str, *, timeout: int = 10) -> int:
     try:
         if backend == "neo4j":
             out = run_cypher(backend, "neo4j", "MATCH (n) RETURN count(n);", timeout=timeout)
-            for line in out.splitlines():
+            # Skip header line from cypher-shell --format plain
+            for line in out.splitlines()[1:]:
                 s = line.strip()
                 if s.isdigit():
                     return int(s)
             return 0
 
         if backend == "falkordb":
-            r = subprocess.check_output(
-                [REDIS_CLI, "-p", REDIS_PORT, "DBSIZE"],
-                text=True, timeout=timeout,
+            # Use GRAPH.QUERY on a known graph to count nodes (not DBSIZE which counts keys).
+            out = run_cypher(
+                backend, "default_db",
+                "MATCH (n) RETURN count(n)", timeout=timeout,
             )
-            # Output: "(integer) 42" or just "42"
-            for token in r.split():
-                if token.isdigit():
-                    return int(token)
-            return 0
+            count = parse_count(backend, out)
+            return count if count is not None else 0
 
         raise ValueError(f"unknown backend: {backend!r}")
     except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
@@ -121,9 +127,10 @@ def list_graphs(backend: str, *, timeout: int = 10) -> list[str]:
             "RETURN DISTINCT e.group_id ORDER BY e.group_id;",
             timeout=timeout,
         )
+        # Skip first line (header row from cypher-shell --format plain)
         return [
             line.strip().strip('"')
-            for line in out.splitlines()
+            for line in out.splitlines()[1:]
             if line.strip() and SAFE_NAME_RE.match(line.strip().strip('"'))
         ]
 
@@ -132,25 +139,27 @@ def list_graphs(backend: str, *, timeout: int = 10) -> list[str]:
             [REDIS_CLI, "-p", REDIS_PORT, "GRAPH.LIST"],
             text=True, timeout=timeout,
         )
+        # Skip first line (header row)
         return [
             x.strip()
-            for x in raw.splitlines()
+            for x in raw.splitlines()[1:]
             if x.strip() and SAFE_NAME_RE.match(x.strip())
         ]
 
     raise ValueError(f"unknown backend: {backend!r}")
 
 
-def parse_count(backend: str, output: str) -> int:
+def parse_count(backend: str, output: str) -> int | None:
     """Parse a single integer result from query output.
 
-    cypher-shell (plain) emits just the number on its own line.
+    cypher-shell (plain) emits a header line then the number.
     redis-cli GRAPH.QUERY emits a header then the number.
+    Returns None if parsing fails (instead of masking errors with 0).
     """
     lines = output.splitlines()
-    start = 1 if backend == "falkordb" else 0
-    for line in lines[start:]:
+    # Both backends emit a header row as the first line — skip it.
+    for line in lines[1:]:
         s = line.strip()
         if s.isdigit():
             return int(s)
-    return 0
+    return None

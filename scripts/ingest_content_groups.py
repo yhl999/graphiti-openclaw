@@ -99,8 +99,9 @@ def _cypher(graph: str, query: str) -> str:
 
 
 def _count(output: str) -> int:
-    """Parse a single-row integer result from query output."""
-    return parse_count(_backend, output)
+    """Parse a single-row integer result from query output. Returns 0 on parse failure."""
+    result = parse_count(_backend, output)
+    return result if result is not None else 0
 
 
 def correct_chunk_keys(group_id: str) -> set[str]:

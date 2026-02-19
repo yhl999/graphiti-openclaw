@@ -51,7 +51,7 @@ def main() -> None:
         bad = parse_count(backend, run_cypher(
             backend, g,
             f"MATCH (e:Episodic) WHERE e.group_id IS NOT NULL AND e.group_id <> '{g}' RETURN count(e)"))
-        if bad <= 0:
+        if bad is None or bad <= 0:
             continue
         touched += 1
         total += bad
