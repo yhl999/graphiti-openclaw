@@ -27,15 +27,16 @@ Notes:
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
 import argparse
 import json
 import re
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any
 
 from ingest.common import sanitize_for_graphiti
 from ingest.registry import get_registry
