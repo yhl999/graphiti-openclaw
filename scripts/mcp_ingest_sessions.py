@@ -19,6 +19,10 @@ Notes:
 - Requires the Graphiti MCP server running locally (launchd native service or docker compose).
 - Uses a strong sanitizer to avoid FalkorDB RediSearch syntax errors.
 - Incremental mode uses a single (best-effort) watermark per --group-id (not per session source).
+- For s1_sessions_main: large evidence (>10k chars) is deterministically sub-chunked into
+  smaller pieces (default 10,000 chars) with :p0/:p1/... key suffixes. This avoids LLM
+  context_length_exceeded errors without lossy truncation. Each sub-chunk gets its own
+  registry entry for idempotent dedup.
 """
 
 from __future__ import annotations
@@ -44,6 +48,55 @@ from registry import get_registry
 
 MCP_URL_DEFAULT = "http://localhost:8000/mcp"
 DEFAULT_OVERLAP_CHUNKS = 10  # for incremental mode
+
+# --- Sub-chunking for large evidence (sessions_main) ---
+# Default max chars per episode body sent to Graphiti. Evidence chunks exceeding
+# this limit are deterministically split into sub-chunks with :p0/:p1/... suffixes.
+# This avoids LLM context_length_exceeded errors without lossy truncation.
+DEFAULT_SUBCHUNK_SIZE = 10_000
+
+# Group IDs that get automatic sub-chunking when evidence exceeds subchunk_size.
+_SUBCHUNK_GROUP_IDS = {"s1_sessions_main"}
+
+
+def subchunk_evidence(content: str, chunk_key: str, max_chars: int) -> list[tuple[str, str]]:
+    """Split content into deterministic sub-chunks if it exceeds max_chars.
+
+    Returns a list of (sub_chunk_key, sub_content) tuples.
+    If content fits in a single chunk, returns [(chunk_key, content)].
+
+    Sub-chunk keys use :p0, :p1, ... suffixes for deterministic idempotent keys.
+    Splits on paragraph boundaries (double newline) when possible to keep context
+    coherent. Falls back to hard split at max_chars if no good boundary exists.
+    """
+    if len(content) <= max_chars:
+        return [(chunk_key, content)]
+
+    parts: list[str] = []
+    remaining = content
+
+    while remaining:
+        if len(remaining) <= max_chars:
+            parts.append(remaining)
+            break
+
+        # Try to find a paragraph boundary (double newline) near the split point
+        # Search in the last 20% of the allowed window for a clean break
+        search_start = int(max_chars * 0.8)
+        split_pos = remaining.rfind("\n\n", search_start, max_chars)
+
+        if split_pos == -1:
+            # No paragraph break; try single newline
+            split_pos = remaining.rfind("\n", search_start, max_chars)
+
+        if split_pos == -1:
+            # Hard split at max_chars
+            split_pos = max_chars
+
+        parts.append(remaining[:split_pos])
+        remaining = remaining[split_pos:].lstrip("\n")
+
+    return [(f"{chunk_key}:p{i}", part) for i, part in enumerate(parts)]
 
 
 class MCPClient:
@@ -223,6 +276,13 @@ def main():
     )
     ap.add_argument("--dry-run", action="store_true", help="Preview what would be ingested without sending to Graphiti")
     ap.add_argument("--force", action="store_true", help="Force re-ingest even if chunk already in registry")
+    ap.add_argument(
+        "--subchunk-size",
+        type=int,
+        default=DEFAULT_SUBCHUNK_SIZE,
+        help=f"Max chars per sub-chunk for large evidence (default: {DEFAULT_SUBCHUNK_SIZE}). "
+        "Only applies to group IDs in _SUBCHUNK_GROUP_IDS (e.g. s1_sessions_main).",
+    )
     args = ap.parse_args()
 
     evidence_path = Path(args.evidence)
@@ -281,13 +341,19 @@ def main():
 
     batch = evidences[args.offset : args.offset + args.limit]
 
+    # Determine whether sub-chunking is active for this group.
+    do_subchunk = args.group_id in _SUBCHUNK_GROUP_IDS
+    subchunk_size = args.subchunk_size
+
     if args.dry_run:
         print(f"\n🔍 DRY RUN: Would process {len(batch)} evidence chunks")
+        if do_subchunk:
+            print(f"   Sub-chunking enabled (max {subchunk_size} chars per sub-chunk)")
         skipped = 0
         new = 0
+        total_subchunks = 0
         for ev in batch:
             content = ev.get("content", "")
-            content_hash = registry.compute_content_hash(content)
 
             chunk_key = ev.get("chunk_key") or ev.get("chunkKey")
             source_key = ev.get("source_key")
@@ -301,10 +367,20 @@ def main():
                 chunk_key.split(":c", 1)[0] if ":c" in str(chunk_key) else stream_source_key
             )
 
-            if not args.force and registry.is_chunk_ingested(chunk_source_key, str(chunk_key), content_hash):
-                skipped += 1
+            # Expand sub-chunks for counting
+            if do_subchunk:
+                sub_parts = subchunk_evidence(content, str(chunk_key), subchunk_size)
             else:
-                new += 1
+                sub_parts = [(str(chunk_key), content)]
+
+            for sub_key, sub_content in sub_parts:
+                total_subchunks += 1
+                sub_hash = registry.compute_content_hash(sub_content)
+                if not args.force and registry.is_chunk_ingested(chunk_source_key, sub_key, sub_hash):
+                    skipped += 1
+                else:
+                    new += 1
+        print(f"   Total episodes (after sub-chunking): {total_subchunks}")
         print(f"   New: {new}, Already ingested: {skipped}")
         return
 
@@ -312,7 +388,9 @@ def main():
 
     ok = 0
     skipped = 0
+    errors = 0
     max_ts = 0.0
+    subchunk_count = 0  # tracks how many sub-chunks were created from oversized evidence
 
     for i, ev in enumerate(batch, start=1):
         evidence_id = (ev.get("evidence_id") or ev.get("id") or "")
@@ -332,67 +410,77 @@ def main():
             chunk_key.split(":c", 1)[0] if ":c" in str(chunk_key) else stream_source_key
         )
 
-        # Registry content hash (shortened) for dedup.
-        content_hash = registry.compute_content_hash(content)
-        if not args.force and registry.is_chunk_ingested(chunk_source_key, str(chunk_key), content_hash):
-            skipped += 1
-            continue
+        # Sub-chunk large evidence for sessions_main to avoid LLM context overflow.
+        # Each sub-chunk gets a deterministic :p0/:p1/... key suffix.
+        if do_subchunk:
+            sub_parts = subchunk_evidence(content, str(chunk_key), subchunk_size)
+            if len(sub_parts) > 1:
+                subchunk_count += len(sub_parts)
+        else:
+            sub_parts = [(str(chunk_key), content)]
 
+        for sub_key, sub_content in sub_parts:
+            # Registry content hash (shortened) for dedup.
+            content_hash = registry.compute_content_hash(sub_content)
+            if not args.force and registry.is_chunk_ingested(chunk_source_key, sub_key, content_hash):
+                skipped += 1
+                continue
 
-        ep_name = f"{chunk_key}:{evidence_id[:8] or content_hash[:8]}"
-        src_desc = f"session chunk: {chunk_key} (scope={scope or 'unknown'})"
+            ep_name = f"{sub_key}:{evidence_id[:8] or content_hash[:8]}"
+            src_desc = f"session chunk: {sub_key} (scope={scope or 'unknown'})"
 
-        chunk_uuid = registry.compute_chunk_uuid(
-            source_key=chunk_source_key,
-            chunk_key=str(chunk_key),
-            content_hash=content_hash,
-        )
-        episode_uuid = registry.compute_episode_uuid(chunk_uuid)
+            chunk_uuid = registry.compute_chunk_uuid(
+                source_key=chunk_source_key,
+                chunk_key=sub_key,
+                content_hash=content_hash,
+            )
+            episode_uuid = registry.compute_episode_uuid(chunk_uuid)
 
-        body = sanitize_for_graphiti(content)
+            body = sanitize_for_graphiti(sub_content)
 
-        res = client.call_tool(
-            "add_memory",
-            {
-                "name": ep_name,
-                "episode_body": body,
-                "group_id": args.group_id,
-                "source": "text",
-                "source_description": src_desc[:200],
-                # NOTE: do NOT pass "uuid" — standalone MCP breaks with client-generated UUIDs
-                # ("node X not found" error). Let the server generate its own.
-            },
-        )
+            res = client.call_tool(
+                "add_memory",
+                {
+                    "name": ep_name,
+                    "episode_body": body,
+                    "group_id": args.group_id,
+                    "source": "text",
+                    "source_description": src_desc[:200],
+                    # NOTE: do NOT pass "uuid" — standalone MCP breaks with client-generated UUIDs
+                    # ("node X not found" error). Let the server generate its own.
+                },
+            )
 
-        if "error" in res:
-            print(f"[{i}/{len(batch)}] ERROR enqueue {ep_name}: {res['error']}")
-            continue
+            if "error" in res:
+                print(f"[{i}/{len(batch)}] ERROR enqueue {ep_name}: {res['error']}")
+                errors += 1
+                continue
 
-        ok += 1
+            ok += 1
 
-        registry.record_chunk(
-            chunk_uuid=chunk_uuid,
-            source_key=chunk_source_key,
-            chunk_key=str(chunk_key),
-            content_hash=content_hash,
-            evidence_id=evidence_id or "(missing)",
-        )
-        registry.record_extraction_queued(
-            group_id=args.group_id,
-            episode_uuid=episode_uuid,
-            chunk_uuid=chunk_uuid,
-            source_key=chunk_source_key,
-            chunk_key=str(chunk_key),
-        )
+            registry.record_chunk(
+                chunk_uuid=chunk_uuid,
+                source_key=chunk_source_key,
+                chunk_key=sub_key,
+                content_hash=content_hash,
+                evidence_id=evidence_id or "(missing)",
+            )
+            registry.record_extraction_queued(
+                group_id=args.group_id,
+                episode_uuid=episode_uuid,
+                chunk_uuid=chunk_uuid,
+                source_key=chunk_source_key,
+                chunk_key=sub_key,
+            )
+
+            time.sleep(args.sleep)
 
         ts = get_evidence_timestamp(ev)
         if ts > max_ts:
             max_ts = ts
 
         if i <= 5 or i == len(batch) or i % 100 == 0:
-            print(f"[{i}/{len(batch)}] queued {ep_name}")
-
-        time.sleep(args.sleep)
+            print(f"[{i}/{len(batch)}] queued {chunk_key} ({len(sub_parts)} part{'s' if len(sub_parts) > 1 else ''})")
 
     # Update watermark for this enqueue stream.
     if ok > 0 and max_ts > 0:
@@ -404,9 +492,13 @@ def main():
             overlap_window=args.overlap,
         )
 
-    print(f"\nQueued: {ok}/{len(batch)} episodes into group_id={args.group_id}")
+    print(f"\nQueued: {ok} episodes into group_id={args.group_id} (from {len(batch)} evidence chunks)")
+    if subchunk_count:
+        print(f"Sub-chunked: {subchunk_count} sub-chunks created from oversized evidence")
     if skipped:
         print(f"Skipped: {skipped} (already ingested)")
+    if errors:
+        print(f"Errors: {errors}")
 
 
 if __name__ == "__main__":
