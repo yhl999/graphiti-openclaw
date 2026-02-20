@@ -1,48 +1,55 @@
 #!/usr/bin/env python3
-"""Graphiti extraction progress monitor.
+"""Graphiti extraction progress monitor (Neo4j backend).
 
 Outputs a Telegram-ready status message.
 
 Design goals:
-- Never mis-report completion as "in progress" due to transient FalkorDB timeouts.
-- Finish quickly under load (uses small per-query timeouts).
-- When queries time out, show "busy" plus the last known count from a local cache.
+- Query Neo4j for episode counts per group_id.
+- Fast: uses a single Cypher query + lightweight HTTP health checks.
+- Fallback: caches last-known counts so transient Neo4j issues don't lose state.
+- Exit code is always 0 (alerts are in the message body, not the exit code).
 
-Exit code is always 0 (alerts are in the message body, not the exit code).
+Usage:
+    python3 scripts/extraction_monitor.py
+
+Environment:
+    NEO4J_URI      (default: bolt://localhost:7687)
+    NEO4J_USER     (default: neo4j)
+    NEO4J_PASSWORD (required)
 """
 
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-REDIS_CLI = "/opt/homebrew/opt/redis/bin/redis-cli"
-PORT = 6379
+NEO4J_URI = os.environ.get("NEO4J_URI", "bolt://localhost:7687")
+NEO4J_USER = os.environ.get("NEO4J_USER", "neo4j")
+NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD", "")
+NEO4J_HTTP_PORT = os.environ.get("NEO4J_HTTP_PORT", "7474")
 
-# Keep these small: this script is run by cron with a short timeout.
-# If FalkorDB is write-saturated, we *prefer* fast timeouts + cached last-known counts.
-PING_TIMEOUT = 2  # seconds
-QUERY_TIMEOUT = 4  # seconds per graph count query
-
-GRAPHS = [
-    ("s1_sessions_main", 3646),
-    ("s1_inspiration_long_form", 494),
+# Target episode counts per group (update as new sources are added).
+GROUPS = [
+    ("s1_sessions_main", 5125),
+    ("s1_chatgpt_history", 543),
+    ("s1_memory_day1", 604),
+    ("s1_inspiration_long_form", 491),
     ("s1_inspiration_short_form", 190),
-    ("s1_writing_samples", 83),
-    ("s1_content_strategy", 10),
-    ("engineering_learnings", 51),
-    ("learning_self_audit", 19),
+    ("s1_writing_samples", 48),
+    ("s1_content_strategy", 6),
+    ("engineering_learnings", 80),
+    ("learning_self_audit", 22),
+    ("s1_curated_refs", 4),
 ]
 
-MCP_PORTS = [8000, 8001, 8002, 8003, 8004, 8005, 8006]
+MCP_PORTS = [8000, 8001, 8002, 8003]
 
 
 def _clawd_root() -> Path:
-    # /Users/archibald/clawd/projects/graphiti-openclaw/scripts/extraction_monitor.py
-    # parents[3] => /Users/archibald/clawd
     return Path(__file__).resolve().parents[3]
 
 
@@ -71,7 +78,6 @@ def save_cache(cache: dict) -> None:
         tmp.write_text(json.dumps(cache, indent=2, sort_keys=True))
         tmp.replace(CACHE_PATH)
     except Exception:
-        # Cache is best-effort.
         pass
 
 
@@ -79,16 +85,82 @@ def fmt_time(ts: str | None) -> str:
     if not ts:
         return "?"
     try:
-        # ts stored as ISO-8601.
         dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
         return dt.strftime("%H:%M")
     except Exception:
         return "?"
 
 
+def query_neo4j_counts() -> dict[str, int] | None:
+    """Query Neo4j for episode counts per group_id via HTTP API.
+
+    Returns dict of {group_id: count} or None on failure.
+    """
+    if not NEO4J_PASSWORD:
+        return None
+
+    import base64
+    import urllib.request
+    import urllib.error
+
+    url = f"http://localhost:{NEO4J_HTTP_PORT}/db/neo4j/tx/commit"
+    payload = json.dumps({
+        "statements": [{
+            "statement": "MATCH (e:Episodic) RETURN e.group_id AS gid, count(e) AS cnt"
+        }]
+    }).encode()
+
+    auth = base64.b64encode(f"{NEO4J_USER}:{NEO4J_PASSWORD}".encode()).decode()
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Basic {auth}",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read())
+            counts = {}
+            for row in data.get("results", [{}])[0].get("data", []):
+                gid, cnt = row["row"]
+                if gid:
+                    counts[gid] = cnt
+            return counts
+    except Exception:
+        return None
+
+
+def check_neo4j_health() -> tuple[bool, str | None]:
+    """Check if Neo4j is responsive."""
+    if not NEO4J_PASSWORD:
+        return False, "NEO4J_PASSWORD not set"
+
+    import base64
+    import urllib.request
+    import urllib.error
+
+    url = f"http://localhost:{NEO4J_HTTP_PORT}/"
+    auth = base64.b64encode(f"{NEO4J_USER}:{NEO4J_PASSWORD}".encode()).decode()
+    req = urllib.request.Request(url, headers={"Authorization": f"Basic {auth}"})
+
+    try:
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            if resp.status == 200:
+                return True, None
+            return False, f"HTTP {resp.status}"
+    except urllib.error.URLError as e:
+        return False, str(e.reason)
+    except Exception as e:
+        return False, str(e)
+
+
 def main() -> None:
     now_hhmm = datetime.now().strftime("%I:%M %p")
-    lines: list[str] = [f"📊 Graphiti extraction — {now_hhmm}"]
+    now_day = datetime.now().strftime("%a")
+    lines: list[str] = [f"📊 Graphiti extraction — {now_hhmm} ({now_day})"]
 
     cache = load_cache()
     cache.setdefault("graphs", {})
@@ -99,152 +171,153 @@ def main() -> None:
         .replace("+00:00", "Z")
     )
 
-    # --- 1) FalkorDB health ---
-    db_alive = False
-    ping_err: str | None = None
-    for attempt in (1, 2):
-        try:
-            r = subprocess.run(
-                [REDIS_CLI, "-p", str(PORT), "PING"],
-                capture_output=True,
-                text=True,
-                timeout=PING_TIMEOUT,
-            )
-            if r.stdout.strip() == "PONG":
-                db_alive = True
-                break
-            ping_err = f"unexpected response: {r.stdout.strip()!r}"
-        except subprocess.TimeoutExpired:
-            ping_err = "PING timed out"
-        except Exception as e:
-            ping_err = f"error: {e}"
-
-        # short retry
-        if attempt == 1:
-            continue
-
+    # --- 1) Neo4j health ---
+    db_alive, err = check_neo4j_health()
     if db_alive:
-        lines.append("FalkorDB: ✅ alive")
+        lines.append("Neo4j: ✅ alive")
         cache["last_ping_ok_at"] = cache["last_run_at"]
     else:
         last_ok = fmt_time(cache.get("last_ping_ok_at"))
-        lines.append(
-            f"FalkorDB: ⏳ busy/unresponsive ({ping_err or 'unknown'}) — last PONG at {last_ok}"
-        )
+        lines.append(f"Neo4j: ⚠️ {err or 'unreachable'} — last OK at {last_ok}")
 
     # --- 2) Episode counts ---
     lines.append("")
-    lines.append("Episodes:")
 
-    for graph, target in GRAPHS:
-        try:
-            r = subprocess.run(
-                [
-                    REDIS_CLI,
-                    "-p",
-                    str(PORT),
-                    "GRAPH.QUERY",
-                    graph,
-                    "MATCH (e:Episodic) RETURN count(e)",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=QUERY_TIMEOUT,
-            )
+    counts = query_neo4j_counts() if db_alive else None
 
-            nums = [
-                ln
-                for ln in (r.stdout or "").strip().split("\n")
-                if ln.strip().lstrip("-").isdigit()
-            ]
-            count = int(nums[0]) if nums else None
+    total_done = 0
+    total_target = 0
+    all_complete = True
 
-            if count is None:
-                lines.append(f"  {graph}: ⚠️ parse error")
-                continue
+    for graph, target in GROUPS:
+        total_target += target
+        count = (counts or {}).get(graph)
 
+        if count is not None:
             cache["graphs"][graph] = {
                 "count": count,
                 "target": target,
                 "at": cache["last_run_at"],
             }
-
+            total_done += count
             if count >= target:
                 lines.append(f"  {graph}: ✅ {count}/{target}")
             else:
                 pct = int(count / target * 100)
                 lines.append(f"  {graph}: 🔄 {count}/{target} ({pct}%)")
-
-        except subprocess.TimeoutExpired:
-            # Do NOT treat this as "in progress".
-            last = cache["graphs"].get(graph) or {}
+                all_complete = False
+        else:
+            # Fallback to cache
+            last = cache["graphs"].get(graph, {})
             last_count = last.get("count")
             last_at = fmt_time(last.get("at"))
-            if last_count is None:
-                lines.append(f"  {graph}: ⏳ busy (no recent sample)")
-            else:
-                # If last sample already hit target, call it complete.
-                if int(last_count) >= int(target):
+            if last_count is not None:
+                total_done += last_count
+                if last_count >= target:
                     lines.append(f"  {graph}: ✅ {last_count}/{target} (cached {last_at})")
                 else:
-                    pct = int(int(last_count) / target * 100)
-                    lines.append(
-                        f"  {graph}: ⏳ busy (cached {last_count}/{target} ({pct}%) @ {last_at})"
-                    )
+                    pct = int(last_count / target * 100)
+                    lines.append(f"  {graph}: ⏳ {last_count}/{target} ({pct}%) (cached {last_at})")
+                    all_complete = False
+            else:
+                lines.append(f"  {graph}: ❓ no data")
+                all_complete = False
 
+    # Summary line
+    lines.insert(2, "")
+    overall_pct = int(total_done / total_target * 100) if total_target else 0
+    if all_complete:
+        lines.insert(3, f"Overall: ✅ {total_done:,}/{total_target:,} — COMPLETE")
+    else:
+        lines.insert(3, f"Overall: 🔄 {total_done:,}/{total_target:,} ({overall_pct}%)")
+
+    # --- 3) Graph size ---
+    if counts is not None:
+        try:
+            import base64
+            import urllib.request
+
+            url = f"http://localhost:{NEO4J_HTTP_PORT}/db/neo4j/tx/commit"
+            auth = base64.b64encode(f"{NEO4J_USER}:{NEO4J_PASSWORD}".encode()).decode()
+
+            payload = json.dumps({
+                "statements": [
+                    {"statement": "MATCH (n) RETURN count(n) AS cnt"},
+                    {"statement": "MATCH ()-[r]->() RETURN count(r) AS cnt"},
+                ]
+            }).encode()
+            req = urllib.request.Request(
+                url, data=payload,
+                headers={"Content-Type": "application/json", "Authorization": f"Basic {auth}"},
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read())
+                nodes = data["results"][0]["data"][0]["row"][0]
+                rels = data["results"][1]["data"][0]["row"][0]
+                lines.append("")
+                lines.append(f"Graph: {nodes:,} nodes / {rels:,} rels")
         except Exception:
-            lines.append(f"  {graph}: ⚠️ error")
+            pass
 
     save_cache(cache)
 
-    # --- 3) MCP health ---
+    # --- 4) MCP health ---
     lines.append("")
+    mcp_up = 0
+    mcp_down = 0
     mcp_status: list[str] = []
     for port in MCP_PORTS:
         try:
             r = subprocess.run(
                 [
-                    "curl",
-                    "-s",
-                    "-o",
-                    "/dev/null",
-                    "-w",
-                    "%{http_code}",
-                    "--max-time",
-                    "0.8",
-                    f"http://localhost:{port}/health",
+                    "curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
+                    "--max-time", "0.8", f"http://localhost:{port}/health",
                 ],
-                capture_output=True,
-                text=True,
-                timeout=1,
+                capture_output=True, text=True, timeout=1,
             )
             code = r.stdout.strip()
-            mcp_status.append(f"{port}:{'✅' if code == '200' else '🔴'}")
+            if code == "200":
+                mcp_status.append(f"{port}:✅")
+                mcp_up += 1
+            else:
+                mcp_status.append(f"{port}:🔴")
+                mcp_down += 1
         except Exception:
             mcp_status.append(f"{port}:🔴")
+            mcp_down += 1
 
     lines.append("MCP: " + " ".join(mcp_status))
 
-    # --- 4) Enqueue driver processes ---
+    # --- 5) Enqueue driver processes ---
     try:
         r1 = subprocess.run(
             ["pgrep", "-f", r"mcp_ingest_sessions\.py"],
-            capture_output=True,
-            text=True,
-            timeout=1,
+            capture_output=True, text=True, timeout=1,
         )
         sessions_drivers = len(r1.stdout.strip().splitlines()) if r1.stdout.strip() else 0
 
         r2 = subprocess.run(
             ["pgrep", "-f", r"ingest_compound_notes\.py"],
-            capture_output=True,
-            text=True,
-            timeout=1,
+            capture_output=True, text=True, timeout=1,
         )
         compound_drivers = len(r2.stdout.strip().splitlines()) if r2.stdout.strip() else 0
 
-        if sessions_drivers or compound_drivers:
-            lines.append(f"Drivers: sessions={sessions_drivers} compound={compound_drivers}")
+        r3 = subprocess.run(
+            ["pgrep", "-f", r"ingest_content_groups\.py"],
+            capture_output=True, text=True, timeout=1,
+        )
+        content_drivers = len(r3.stdout.strip().splitlines()) if r3.stdout.strip() else 0
+
+        parts = []
+        if sessions_drivers:
+            parts.append(f"sessions={sessions_drivers}")
+        if compound_drivers:
+            parts.append(f"compound={compound_drivers}")
+        if content_drivers:
+            parts.append(f"content={content_drivers}")
+
+        if parts:
+            lines.append("Drivers: " + " ".join(parts))
         else:
             lines.append("Drivers: none (MCP draining async)")
     except Exception:
