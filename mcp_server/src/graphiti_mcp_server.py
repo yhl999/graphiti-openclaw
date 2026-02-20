@@ -78,7 +78,10 @@ SEMAPHORE_LIMIT = int(os.getenv('SEMAPHORE_LIMIT', 10))
 
 # Trust-aware retrieval: additive boost for facts with trust_score property.
 # Set to 0.0 to disable trust boosting entirely (identical to vanilla RRF).
-TRUST_WEIGHT = float(os.environ.get('GRAPHITI_TRUST_WEIGHT', '0.15'))
+try:
+    TRUST_WEIGHT = float(os.environ.get('GRAPHITI_TRUST_WEIGHT', '0.0'))
+except (ValueError, TypeError):
+    TRUST_WEIGHT = 0.0
 
 
 # Configure structured logging with timestamps

@@ -260,10 +260,10 @@ async def edge_search(
     if config.reranker == EdgeReranker.rrf or config.reranker == EdgeReranker.episode_mentions:
         search_result_uuids = [[edge.uuid for edge in result] for result in search_results]
 
-        if trust_weight > 0:
+        if trust_weight > 0 and config.reranker == EdgeReranker.rrf:
             # RRF with additive trust boost
-            rrf_uuids, _ = rrf(search_result_uuids, min_score=0)
-            trust_scores = await load_trust_scores(driver, rrf_uuids, node_type='RELATES_TO')
+            all_uuids = list({uuid for result in search_result_uuids for uuid in result})
+            trust_scores = await load_trust_scores(driver, all_uuids, node_type='RELATES_TO')
             reranked_uuids, edge_scores = rrf_with_trust_boost(
                 search_result_uuids,
                 trust_scores,
@@ -394,8 +394,8 @@ async def node_search(
     if config.reranker == NodeReranker.rrf:
         if trust_weight > 0:
             # RRF with additive trust boost
-            rrf_uuids, _ = rrf(search_result_uuids, min_score=0)
-            trust_scores = await load_trust_scores(driver, rrf_uuids, node_type='Entity')
+            all_uuids = list({uuid for result in search_result_uuids for uuid in result})
+            trust_scores = await load_trust_scores(driver, all_uuids, node_type='Entity')
             reranked_uuids, node_scores = rrf_with_trust_boost(
                 search_result_uuids,
                 trust_scores,
