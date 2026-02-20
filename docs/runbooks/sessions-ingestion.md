@@ -17,7 +17,7 @@ This runbook covers the full lifecycle of Graphiti extraction: batch ingestion f
 3. [Batch Ingestion (Initial / Re-Extraction)](#batch-ingestion)
 4. [Steady-State Configuration](#steady-state-configuration)
 5. [Post-Processing Pipeline](#post-processing-pipeline)
-6. [Adding New Data Sources](#adding-new-data-sources)
+6. [Adding New Data Sources](adding-data-sources.md)
 7. [Troubleshooting & Failure Modes](#troubleshooting--failure-modes)
 8. [Operational Learnings](#operational-learnings)
 
@@ -341,93 +341,9 @@ MATCH (e:Episodic)-[:NEXT_EPISODE]->() RETURN e.group_id as gid, count(*) as lin
 
 ## Adding New Data Sources
 
-Each new data source needs exactly three things:
+See the dedicated runbook: **[adding-data-sources.md](adding-data-sources.md)**
 
-### 1. A `group_id`
-
-Choose a descriptive, snake_case identifier: `s1_taste_wine`, `s1_taste_restaurants`, `s1_crm_people`, `s1_gtd_tasks`.
-
-### 2. An Ontology (optional but recommended)
-
-Add a block to `mcp_server/config/extraction_ontologies.yaml`:
-
-```yaml
-s1_taste_wine:
-  extraction_emphasis: >-
-    Focus on tasting notes, producer style, terroir, vintage quality,
-    food pairings, and price-to-quality assessments.
-  entity_types:
-    - name: Wine
-      description: "Specific wine (producer + cuvée + vintage)"
-    - name: Producer
-      description: "Winery or négociant"
-    - name: Region
-      description: "Appellation or geographic terroir"
-    - name: TastingNote
-      description: "Sensory descriptor or quality assessment"
-  relationship_types:
-    - name: PRODUCED_BY
-    - name: FROM_REGION
-    - name: PAIRS_WITH
-```
-
-Groups without an explicit ontology entry fall back to the global default entity types. Custom ontologies dramatically improve extraction quality for domain-specific data.
-
-### 3. An Ingest Adapter Script
-
-The pattern for any SQLite DB source:
-
-```python
-#!/usr/bin/env python3
-"""Ingest <source> into Graphiti via MCP add_memory."""
-
-import json, sqlite3, urllib.request
-from uuid import uuid5, NAMESPACE_URL
-
-GROUP_ID = "s1_taste_wine"
-MCP_URL = "http://localhost:8000/mcp"
-
-def add_memory(name, body, group_id, source_desc):
-    """Send one episode to MCP."""
-    payload = {
-        "jsonrpc": "2.0", "id": 1, "method": "tools/call",
-        "params": {"name": "add_memory", "arguments": {
-            "name": name, "episode_body": body,
-            "group_id": group_id, "source_description": source_desc,
-        }}
-    }
-    req = urllib.request.Request(MCP_URL, json.dumps(payload).encode(),
-                                 {"Content-Type": "application/json"})
-    urllib.request.urlopen(req, timeout=120)
-
-def main():
-    db = sqlite3.connect("/path/to/wine.db")
-    rows = db.execute("SELECT id, name, notes, rating FROM wines").fetchall()
-    for wine_id, name, notes, rating in rows:
-        body = f"Wine: {name}\nNotes: {notes}\nRating: {rating}"
-        # Deterministic UUID for idempotent re-runs
-        uuid = str(uuid5(NAMESPACE_URL, f"wine:{wine_id}"))
-        add_memory(name=name, body=body, group_id=GROUP_ID,
-                   source_desc=f"wine_db:{wine_id}")
-        print(f"Queued: {name}")
-
-if __name__ == "__main__":
-    main()
-```
-
-Key principles:
-- **Deterministic UUIDs** from source IDs → idempotent re-runs
-- **Sub-chunk large content** (>10k chars) before sending to MCP
-- **Track cursor/watermark** for incremental ingest
-- **Validate body size** against `GRAPHITI_MAX_EPISODE_BODY_CHARS` (default 12k)
-
-### 4. Add to Cron Schedule
-
-Add the new ingest to the cron schedule with appropriate frequency:
-
-- **Taste DBs:** daily (data changes infrequently)
-- **CRM:** hourly or on-interaction (captures meeting notes promptly)
-- **GTD:** every 30 min (task status changes are time-sensitive)
+Covers: choosing a `group_id`, defining a custom ontology, writing an ingest adapter script (with templates for SQLite, JSONL, and Markdown sources), setting up cron, and verifying the integration.
 
 ---
 
