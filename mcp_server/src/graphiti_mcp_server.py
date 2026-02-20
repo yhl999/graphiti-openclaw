@@ -33,7 +33,6 @@ from models.response_types import (
     SuccessResponse,
 )
 from services.factories import DatabaseDriverFactory, EmbedderFactory, LLMClientFactory
-from services.ontology_registry import OntologyRegistry
 from services.queue_service import QueueService
 from utils.formatting import format_fact_result
 

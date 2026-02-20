@@ -1796,7 +1796,7 @@ def rrf_with_trust_boost(
     results: list[list[str]],
     trust_scores: dict[str, float],
     rank_const: int = 1,
-    trust_weight: float = 0.15,
+    trust_weight: float = 0.0,
     min_score: float = 0,
 ) -> tuple[list[str], list[float]]:
     """RRF reranking with additive trust score boost.
@@ -1821,7 +1821,7 @@ def rrf_with_trust_boost(
 
     # Step 2: Apply trust boost
     boosted: list[tuple[str, float]] = []
-    for uuid, score in zip(uuids, rrf_scores):
+    for uuid, score in zip(uuids, rrf_scores, strict=True):
         trust = trust_scores.get(uuid, 0.0)
         final = score + (trust * trust_weight)
         boosted.append((uuid, final))
