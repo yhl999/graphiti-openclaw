@@ -48,7 +48,7 @@ def main() -> None:
 
     total = touched = 0
     for g in graphs:
-        bad = parse_count(backend, run_cypher(
+        bad = parse_count(run_cypher(
             backend, g,
             f"MATCH (e:Episodic) WHERE e.group_id IS NOT NULL AND e.group_id <> '{g}' RETURN count(e)"))
         if bad is None or bad <= 0:

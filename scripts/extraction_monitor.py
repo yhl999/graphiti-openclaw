@@ -137,7 +137,7 @@ def main() -> None:
                 q = "MATCH (e:Episodic) RETURN count(e)"
 
             out = run_cypher(backend, graph, q, timeout=QUERY_TIMEOUT)
-            count: int | None = parse_count(backend, out) if out.strip() else None
+            count: int | None = parse_count(out) if out.strip() else None
 
             if count is None:
                 lines.append(f"  {graph}: \u26a0\ufe0f parse error")

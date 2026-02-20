@@ -84,7 +84,7 @@ def check_health(backend: str, *, timeout: int = 2) -> bool:
             return r.stdout.strip() == "PONG"
 
         raise ValueError(f"unknown backend: {backend!r}")
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+    except (subprocess.TimeoutExpired, FileNotFoundError, ValueError):
         return False
 
 
@@ -106,7 +106,7 @@ def get_db_size(backend: str, *, timeout: int = 10) -> int:
                 backend, "default_db",
                 "MATCH (n) RETURN count(n)", timeout=timeout,
             )
-            count = parse_count(backend, out)
+            count = parse_count(out)
             return count if count is not None else 0
 
         raise ValueError(f"unknown backend: {backend!r}")
@@ -139,17 +139,16 @@ def list_graphs(backend: str, *, timeout: int = 10) -> list[str]:
             [REDIS_CLI, "-p", REDIS_PORT, "GRAPH.LIST"],
             text=True, timeout=timeout,
         )
-        # Skip first line (header row)
         return [
             x.strip()
-            for x in raw.splitlines()[1:]
+            for x in raw.splitlines()
             if x.strip() and SAFE_NAME_RE.match(x.strip())
         ]
 
     raise ValueError(f"unknown backend: {backend!r}")
 
 
-def parse_count(backend: str, output: str) -> int | None:
+def parse_count(output: str) -> int | None:
     """Parse a single integer result from query output.
 
     cypher-shell (plain) emits a header line then the number.

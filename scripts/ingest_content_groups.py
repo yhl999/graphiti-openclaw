@@ -100,7 +100,7 @@ def _cypher(graph: str, query: str) -> str:
 
 def _count(output: str) -> int:
     """Parse a single-row integer result from query output. Returns 0 on parse failure."""
-    result = parse_count(_backend, output)
+    result = parse_count(output)
     return result if result is not None else 0
 
 
@@ -200,12 +200,8 @@ def sanitize(text: str) -> str:
 def last_openai_ts() -> float:
     """Epoch of most recent OpenAI call in MCP logs (assumes UTC)."""
     try:
-        if MCP_LOG.exists():
-            lines_raw = subprocess.check_output(
-                ["tail", "-200", str(MCP_LOG)], text=True, timeout=10).splitlines()
-        else:
-            lines_raw = subprocess.check_output(
-                ["tail", "-200", str(MCP_LOG)], text=True, timeout=10).splitlines()
+        lines_raw = subprocess.check_output(
+            ["tail", "-200", str(MCP_LOG)], text=True, timeout=10).splitlines()
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
         return 0.0
     lines = [line for line in lines_raw if "api.openai.com" in line]

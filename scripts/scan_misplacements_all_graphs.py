@@ -61,11 +61,11 @@ def main() -> None:
 
     rows = []
     for g in graphs:
-        total = parse_count(backend, run_cypher(
+        total = parse_count(run_cypher(
             backend, g, "MATCH (e:Episodic) RETURN count(e)"))
         if total is None or total == 0:
             continue
-        bad = parse_count(backend, run_cypher(
+        bad = parse_count(run_cypher(
             backend, g,
             f"MATCH (e:Episodic) WHERE e.group_id IS NOT NULL AND e.group_id <> '{g}' RETURN count(e)"))
         if bad is None:
