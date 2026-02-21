@@ -123,6 +123,7 @@ class LLMClientFactory:
                     api_key=api_key,
                     model=config.model,
                     small_model=small_model,
+                    base_url=config.providers.openai.api_url,
                     temperature=config.temperature,
                     max_tokens=config.max_tokens,
                 )
