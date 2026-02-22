@@ -2,6 +2,10 @@
 
 This runbook explains how to operate the Dual-Brain system in practice: when to approve facts, how to handle conflicts, and how to debug when Brain 1 and Brain 2 disagree.
 
+> **Operational status (2026-02-22):** canonical curated migration is closed out, but Graphiti-primary retrieval flip should stay gated until extraction freshness / queue-drain reliability is verified over a fresh shadow-compare window.
+>
+> **Command notice:** this public runbook is architecture guidance. Some CLI examples below are illustrative and may refer to internal/private operator tooling not published in this repo.
+
 ---
 
 ## Quick Reference: The Two Brains
@@ -64,7 +68,7 @@ When you supersede a fact, Brain 2 records it:
 - New fact gets `supersedes: <old-uuid>`
 - Timestamp recorded in ledger hash chain
 
-Brain 1 (Neo4j) doesn't get updated immediately. The next sync run will set `trust_score = 0` on the old edge and `trust_score = 1.0` on the new one.
+Brain 1 (Neo4j) doesn't get updated immediately. The next sync run reweights trust tiers (promoted edges to `trust_score = 1.0`; non-promoted corroborated edges to a lower tier, typically `0.25`).
 
 ### Syncing Brain 2 Changes Back to Brain 1
 

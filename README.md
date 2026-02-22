@@ -302,7 +302,8 @@ For the full sync procedure, see [Upstream Sync Runbook](docs/runbooks/upstream-
 - Publicization execution lanes completed: adapter wiring, backup wiring, cron cutover.
 - Integration gate: **GO** (`reports/publicization/integration-report.md`).
 - Boundary policy: **ALLOW=370 / BLOCK=0 / AMBIGUOUS=0**.
-- **Truth pipeline: operational, with deterministic migration closeout policy.** Fact ledger + trust-aware retrieval are live, and curated-facts migration now uses deterministic disposition-aware validation (rather than ad-hoc/manual overrides) for unresolved legacy mappings. Content packs remain isolated (NULL trust_score, zero distortion).
+- **Truth pipeline: operational, with deterministic migration closeout policy.** Fact ledger + trust-aware retrieval are live, and curated-facts migration now uses deterministic disposition-aware validation (rather than ad-hoc/manual overrides) for unresolved legacy mappings. Canonical curated migration closeout is complete.
+- **Flip readiness caveat:** do not treat this status as automatic “Graphiti-primary GO.” First confirm extraction freshness / queue-drain reliability and pass a fresh shadow-compare window; otherwise keep Graphiti in governed shadow mode with QMD failover semantics.
 
 ## CI Policy
 
